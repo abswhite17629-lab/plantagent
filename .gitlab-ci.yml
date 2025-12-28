@@ -2,32 +2,43 @@ stages:
   - build
   - deploy
 
-# 构建阶段：使用docker-in-docker，支持docker build/push
+# 构建阶段：修复dind启动+docker daemon连接问题
 build:
   stage: build
   tags:
-    - python-web  # 匹配你的Runner标签
-  image: docker  # 包含docker客户端的基础镜像
+    - python-web
+  image: docker
   services:
-    - docker  # 启动docker守护进程服务（关键）
+    - name: docker-dind
+      # 关键：开启privileged模式（dind必须的特权权限）
+      privileged: true
   variables:
-    DOCKER_TLS_CERTDIR: ""  # 关闭TLS，简化dind配置（测试环境可用）
+    # 关闭TLS，简化dind配置
+    DOCKER_TLS_CERTDIR: ""
+    # 核心：指定docker daemon地址（解决host解析失败）
+    DOCKER_HOST: "tcp://localhost:2375"
+    # 可选：指定存储驱动，提升稳定性
+    DOCKER_DRIVER: "overlay2"
+    # 镜像仓库配置
     CI_REGISTRY: "jihulab.com"
     CI_REGISTRY_USER: "abswhite"
-    CI_REGISTRY_PASSWORD: "SBPah9dv49JsSGh9xvWPb286MQp1OjRwN2sK.01.1013amva0"  # 替换为你的令牌
+    CI_REGISTRY_PASSWORD: "SBPah9dv49JsSGh9xvWPb286MQp1OjRwN2sK.01.1013amva0"  # 替换为实际PAT
     CI_REGISTRY_IMAGE: "jihulab.com/abswhite-group/abswhite-project/python-app"
   before_script:
-    - docker login $CI_REGISTRY -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD  # 登录极狐GitLab镜像仓库
+    # 等待docker daemon启动（避免连接过早失败）
+    - until docker info; do sleep 1; done
+    # 登录镜像仓库（改用--password-stdin更安全）
+    - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
   script:
     - docker build -t $CI_REGISTRY_IMAGE:latest .
     - docker push $CI_REGISTRY_IMAGE:latest
 
-# 部署阶段：如需执行kubectl，需用包含kubectl的镜像（示例）
+# 部署阶段（保持原有配置，若需调整可参考）
 deploy:
   stage: deploy
   tags:
     - python-web
-  image: kubectl:1.22.4  # 包含kubectl的镜像
+  image: kubectl:1.22.4
   script:
     - kubectl set image deployment/python-app python-app=$CI_REGISTRY_IMAGE:latest -n python-app
     - kubectl rollout restart deployment/python-app -n python-app
