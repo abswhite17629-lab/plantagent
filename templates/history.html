@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>历史记录 - YOLO11工具</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1000px; margin: 20px auto; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+        a { color: #007bff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <h1>检测历史记录</h1>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>文件名</th>
+            <th>上传时间</th>
+            <th>目标总数</th>
+            <th>操作</th>
+        </tr>
+        {% for record in records %}
+        <tr>
+            <td>{{ record.id }}</td>
+            <td>{{ record.filename }}</td>
+            <td>{{ record.upload_time }}</td>
+            <td>{{ record.total_targets }}</td>
+            <td><a href="/result/{{ record.id }}">查看详情</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    <br>
+    <a href="/">返回上传页</a>
+</body>
+</html>

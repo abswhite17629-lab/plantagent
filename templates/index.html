@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>YOLO11 目标检测工具</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        .upload-box { border: 2px dashed #ccc; padding: 40px; text-align: center; border-radius: 10px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        a { color: #007bff; text-decoration: none; margin-top: 20px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <h1>YOLO11 目标检测 + 豆包AI分析</h1>
+    <div class="upload-box">
+        <form action="/detect" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" accept=".jpg,.jpeg,.png,.bmp" required>
+            <br><br>
+            <button type="submit">上传并检测</button>
+        </form>
+    </div>
+    <a href="/history">查看历史检测记录</a>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>检测结果 - YOLO11工具</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1000px; margin: 20px auto; padding: 20px; }
+        .container { display: flex; gap: 20px; margin-bottom: 30px; }
+        img { max-width: 450px; border: 1px solid #ccc; padding: 10px; }
+        .analysis { background: #f8f9fa; padding: 20px; border-radius: 10px; }
+        a { color: #007bff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <h1>检测结果</h1>
+    <div class="container">
+        <div>
+            <h3>原始图片</h3>
+            <img src="/{{ record.img_path }}" alt="原始图片">
+        </div>
+        <div>
+            <h3>检测结果</h3>
+            <img src="/{{ record.result_img_path }}" alt="检测结果">
+        </div>
+    </div>
+
+    <div class="analysis">
+        <h3>📊 检测信息</h3>
+        <p>图片分辨率：{{ record.detect_info.resolution }}</p>
+        <p>总检测目标数：{{ record.total_targets }}</p>
+        <p>目标明细：</p>
+        <ul>
+            {% for target in record.detect_info.targets %}
+            <li>{{ target.class }}（置信度：{{ target.confidence }}）- {{ target.position }}</li>
+            {% endfor %}
+        </ul>
+
+        <h3>🤖 豆包AI分析报告</h3>
+        <pre>{{ record.ai_analysis }}</pre>
+    </div>
+
+    <br>
+    <a href="/">返回上传页</a> | <a href="/history">查看历史记录</a>
+</body>
+</html>
