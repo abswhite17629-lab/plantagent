@@ -1,20 +1,20 @@
-# 基础镜像（根据你的Python版本调整）
+# 基础镜像
 FROM python:3.9-slim
 
 # 设置工作目录
 WORKDIR /app
 
-# 复制项目依赖文件（如果有requirements.txt）
+# 复制依赖清单
 COPY requirements.txt .
 
-# 安装依赖（如果没有requirements.txt，可注释这行）
+# 安装依赖（国内源加速，包含YOLO11依赖）
 RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 复制项目所有文件到工作目录
+# 复制项目所有文件（包括best.pt模型）
 COPY . .
 
-# 暴露端口（根据你的项目调整，比如Flask/Django常用8000）
-EXPOSE 8000
+# 暴露Flask服务端口（Nginx反向代理指向5000）
+EXPOSE 5000
 
-# 启动命令（根据你的项目入口文件调整，比如app.py）
-CMD ["python", "app.py"]
+# 启动Flask服务
+CMD ["flask", "run", "--host=0.0.0.0", "--port=5000"]
