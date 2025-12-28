@@ -7,14 +7,14 @@ build:
   stage: build
   tags:
     - python-web  # 匹配你的Runner标签
-  image: docker:24.0.5  # 包含docker客户端的基础镜像
+  image: docker  # 包含docker客户端的基础镜像
   services:
-    - docker:24.0.5-dind  # 启动docker守护进程服务（关键）
+    - docker  # 启动docker守护进程服务（关键）
   variables:
     DOCKER_TLS_CERTDIR: ""  # 关闭TLS，简化dind配置（测试环境可用）
     CI_REGISTRY: "jihulab.com"
     CI_REGISTRY_USER: "abswhite"
-    CI_REGISTRY_PASSWORD: "你的极狐GitLab个人访问令牌"  # 替换为你的令牌
+    CI_REGISTRY_PASSWORD: "SBPah9dv49JsSGh9xvWPb286MQp1OjRwN2sK.01.1013amva0"  # 替换为你的令牌
     CI_REGISTRY_IMAGE: "jihulab.com/abswhite-group/abswhite-project/python-app"
   before_script:
     - docker login $CI_REGISTRY -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD  # 登录极狐GitLab镜像仓库
@@ -27,7 +27,7 @@ deploy:
   stage: deploy
   tags:
     - python-web
-  image: bitnami/kubectl:1.28  # 包含kubectl的镜像
+  image: kubectl:1.22.4  # 包含kubectl的镜像
   script:
     - kubectl set image deployment/python-app python-app=$CI_REGISTRY_IMAGE:latest -n python-app
     - kubectl rollout restart deployment/python-app -n python-app
