@@ -9,15 +9,14 @@ redis==5.0.1
 # 豆包大模型API调用
 requests==2.31.0
 
-# YOLO11核心依赖（新增）
-ultralytics==8.2.89  # 适配YOLO11的稳定版本
+# YOLO11核心依赖
+ultralytics==8.2.89
 
 # 辅助工具
 python-dotenv==1.0.0
 json5==0.9.14
-logging==0.4.9.6
 
-# YOLO11可选依赖（按需添加，比如GPU支持/图像处理）
+# YOLO11可选依赖（图像处理）
 opencv-python==4.8.1.78
 pillow==10.1.0
 numpy==1.26.4
