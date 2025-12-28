@@ -5,15 +5,17 @@ stages:
 build:
   stage: build
   tags:
-    - python,k8s,centos7
+    - python-web  # 匹配Runner的python-web标签（核心修正）
   script:
-    - docker build -t https://abswhite@jihulab.com/abswhite-group/abswhite-project.git/python-app:latest .
-    - docker push https://abswhite@jihulab.com/abswhite-group/abswhite-project.git/python-app:latest
+    # 注意：docker镜像地址格式错误，后续修正
+    - docker build -t jihulab.com/abswhite-group/abswhite-project/python-app:latest .
+    - docker push jihulab.com/abswhite-group/abswhite-project/python-app:latest
 
 deploy:
   stage: deploy
   tags:
-    - python,k8s,centos7
+    - python-web  # 匹配Runner的python-web标签（核心修正）
   script:
-    - kubectl set image deployment/python-app python-app=https://abswhite@jihulab.com/abswhite-group/abswhite-project.git/python-app:latest -n python-app
+    # 注意：kubectl命令需确保Runner能访问K8s集群，且命名空间存在
+    - kubectl set image deployment/python-app python-app=jihulab.com/abswhite-group/abswhite-project/python-app:latest -n python-app
     - kubectl rollout restart deployment/python-app -n python-app
