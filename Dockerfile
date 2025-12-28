@@ -1,8 +1,20 @@
 # 基础镜像
 FROM python:3.9-slim
 
-# 安装YOLO11所需的系统依赖（新增，避免后续运行报错）
-RUN apt update && apt install -y libgl1-mesa-glx libglib2.0-0 && rm -rf /var/lib/apt/lists/*
+# ========== 彻底替换Debian源：重写sources.list ==========
+RUN echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye main contrib non-free" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-updates main contrib non-free" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian-security/ bullseye-security main contrib non-free" >> /etc/apt/sources.list && \
+    # 升级apt + 只装YOLO11 CPU运行必需的最小依赖（大幅减少下载量）
+    apt update && \
+    apt install -y --no-install-recommends \
+        libglib2.0-0 \
+        libgl1 \
+        libopencv-core4.5 \
+        libopencv-imgproc4.5 && \
+    # 强制清理缓存，减小镜像体积
+    apt clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # 设置工作目录
 WORKDIR /app
@@ -10,14 +22,14 @@ WORKDIR /app
 # 复制依赖清单
 COPY requirements.txt .
 
-# 升级pip（解决低版本pip安装问题）+ 安装Python依赖
+# 升级pip + 安装Python依赖（国内PyPI源）
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 复制项目所有文件（包括best.pt模型）
 COPY . .
 
-# 暴露Flask服务端口（Nginx反向代理指向5000）
+# 暴露Flask服务端口
 EXPOSE 5000
 
 # 启动Flask服务
