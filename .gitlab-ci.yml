@@ -2,38 +2,31 @@ stages:
   - build
   - deploy
 
-# 构建阶段：修复dind启动+docker daemon连接问题
 build:
   stage: build
   tags:
     - python-web
-  image: docker
+  image: docker:latest
   services:
-    - name: docker-dind
-      # 关键：开启privileged模式（dind必须的特权权限）
-      privileged: true
+    # 移除privileged参数（旧Runner不支持），仅保留dind服务
+    - docker:latest-dind
   variables:
-    # 关闭TLS，简化dind配置
     DOCKER_TLS_CERTDIR: ""
-    # 核心：指定docker daemon地址（解决host解析失败）
-    DOCKER_HOST: "tcp://localhost:2375"
-    # 可选：指定存储驱动，提升稳定性
+    DOCKER_HOST: "tcp://localhost:2375"  # 核心：绕过docker主机名解析
     DOCKER_DRIVER: "overlay2"
-    # 镜像仓库配置
     CI_REGISTRY: "jihulab.com"
     CI_REGISTRY_USER: "abswhite"
     CI_REGISTRY_PASSWORD: "SBPah9dv49JsSGh9xvWPb286MQp1OjRwN2sK.01.1013amva0"  # 替换为实际PAT
     CI_REGISTRY_IMAGE: "jihulab.com/abswhite-group/abswhite-project/python-app"
   before_script:
-    # 等待docker daemon启动（避免连接过早失败）
+    # 等待docker daemon启动（关键：避免连接过早失败）
     - until docker info; do sleep 1; done
-    # 登录镜像仓库（改用--password-stdin更安全）
+    # 安全登录镜像仓库
     - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
   script:
     - docker build -t $CI_REGISTRY_IMAGE:latest .
     - docker push $CI_REGISTRY_IMAGE:latest
 
-# 部署阶段（保持原有配置，若需调整可参考）
 deploy:
   stage: deploy
   tags:
