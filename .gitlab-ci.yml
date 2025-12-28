@@ -2,31 +2,27 @@ stages:
   - build
   - deploy
 
-# 构建阶段：纯宿主机Docker套接字方案，无任何dind依赖
+# 构建阶段：适配14.6.0 Runner，删除volumes字段（移到Runner配置里）
 build:
   stage: build
   tags:
     - python-web
-  image: docker  # 仅用docker客户端镜像（无需dind）
+  image: docker
   variables:
-    # 关键修正：指向宿主机Docker的unix套接字（不是TCP端口）
+    # 指向宿主机Docker的unix套接字
     DOCKER_HOST: "unix:///var/run/docker.sock"
-    # 移除所有dind相关变量（如DOCKER_TLS_CERTDIR、DOCKER_DRIVER）
     CI_REGISTRY: "jihulab.com"
     CI_REGISTRY_USER: "abswhite"
     CI_REGISTRY_PASSWORD: "SBPah9dv49JsSGh9xvWPb286MQp1OjRwN2sK.01.1013amva0"
     CI_REGISTRY_IMAGE: "jihulab.com/abswhite-group/abswhite-project/python-app"
   script:
-    # 先验证宿主机Docker是否能连接（简单测试）
+    # 验证Docker连接
     - docker version
-    # 登录极狐镜像仓库
+    # 登录镜像仓库
     - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
-    # 构建+推送镜像（直接用宿主机Docker）
+    # 构建+推送镜像
     - docker build -t $CI_REGISTRY_IMAGE:latest .
     - docker push $CI_REGISTRY_IMAGE:latest
-  # 核心：挂载宿主机的Docker套接字到作业容器（必须）
-  volumes:
-    - /var/run/docker.sock:/var/run/docker.sock
 
 # 部署阶段（保持不变）
 deploy:
