@@ -6,10 +6,10 @@ build:
   stage: build
   tags:
     - python-web
-  image: docker:latest
+  image: docker
   services:
     # 移除privileged参数（旧Runner不支持），仅保留dind服务
-    - docker:latest-dind
+    - docker:dind
   variables:
     DOCKER_TLS_CERTDIR: ""
     DOCKER_HOST: "tcp://localhost:2375"  # 核心：绕过docker主机名解析
