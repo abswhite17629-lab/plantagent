@@ -1,20 +1,17 @@
-# Web框架（适配Nginx反向代理）
+# Web框架
 flask==2.3.3
 
-# MySQL/Redis数据存储（仅保留实际使用的）
+# MySQL/Redis数据存储
 pymysql==1.1.0
 redis==5.0.1
 
-# 豆包大模型API调用
+# 豆包API调用
 requests==2.31.0
 
-# YOLO11核心依赖（补充torch，ultralytics必须依赖torch运行）
+# YOLO11核心依赖（已单独装torch，这里只装ultralytics）
 ultralytics==8.2.89
-torch>=2.0.0  # 适配ultralytics 8.2.89的最低torch版本
 
-# 辅助工具（移除未使用的python-dotenv、json5）
-
-# YOLO11可选依赖（图像处理，版本保留你的配置）
+# 图像处理依赖
 opencv-python==4.8.1.78
 pillow==10.1.0
 numpy==1.26.4
