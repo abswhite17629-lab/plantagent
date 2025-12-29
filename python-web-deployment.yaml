@@ -70,7 +70,7 @@ metadata:
   labels:
     app: python-web
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: python-web
   ports:
