@@ -9,9 +9,13 @@ redis==5.0.1
 requests==2.31.0
 
 # YOLO11核心依赖（已单独装torch，这里只装ultralytics）
-ultralytics==8.2.89
+ultralytics>=8.2.0
+git+https://github.com/THU-MIG/yolov10.git
 
 # 图像处理依赖
 opencv-python==4.8.1.78
 pillow==10.1.0
-numpy==1.26.4
+numpy==1.26.4cryptography>=41.0.0
+ultralytics[yolo11]>=8.2.0
+cryptography>=41.0.0
+
