@@ -2,19 +2,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  # Deployment名称（必须和CI命令中的一致）
   name: python-web
-  # 命名空间（必须和CI命令中的一致）
   namespace: python-web
   labels:
     app: python-web
 spec:
-  # 副本数（按你的需求调整）
   replicas: 2
   selector:
     matchLabels:
       app: python-web
-  # 部署策略：滚动更新（避免服务中断）
   strategy:
     rollingUpdate:
       maxSurge: 1
@@ -25,50 +21,45 @@ spec:
       labels:
         app: python-web
     spec:
-      # 关键：引用极狐仓库的镜像拉取密钥（解决ImagePullBackOff）
       imagePullSecrets:
-      - name: jihulab-registry
+        - name: jihulab-registry
       containers:
-      - name: python-web
-        # 极狐仓库镜像地址（和CI构建的一致）
-        image: registry.jihulab.com/abswhite-group/abswhite-project/python-app:latest
-        # 容器端口（和应用监听的端口一致）
-        ports:
-        - containerPort: 8000
-          protocol: TCP
-        # 环境变量（保留你原有的配置）
-        env:
-        - name: MYSQL_HOST
-          value: "mysql-service.mysql.svc.cluster.local"
-        - name: MYSQL_PASSWORD
-          value: "123456"
-        - name: REDIS_HOST
-          value: "redis-service.redis.svc.cluster.local"
-        - name: REDIS_PASSWORD
-          value: "123456"
-        # 资源限制（避免节点资源不足导致Pod启动失败）
-        resources:
-          requests:
-            cpu: 100m       # 最小CPU需求（100毫核）
-            memory: 128Mi   # 最小内存需求
-          limits:
-            cpu: 500m       # 最大CPU限制
-            memory: 256Mi   # 最大内存限制
-        # 健康检查（可选，提升应用可用性）
-        livenessProbe:
-          httpGet:
-            path: /health  # 需根据你的应用调整健康检查接口
-            port: 8000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /ready   # 需根据你的应用调整就绪检查接口
-            port: 8000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-        # 镜像拉取策略：每次重启都拉取最新镜像
-        imagePullPolicy: Always
+        - name: python-web
+          image: registry.jihulab.com/abswhite-group/abswhite-project/python-app:latest
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          env:
+            - name: MYSQL_HOST
+              value: "mysql-service.mysql.svc.cluster.local"
+            - name: MYSQL_PASSWORD
+              value: "123456"
+            - name: REDIS_HOST
+              value: "redis-service.redis.svc.cluster.local"
+            - name: REDIS_PASSWORD
+              value: "123456"
+          # ?? 关键修改：大幅提高内存限制（YOLO 应用至少需要 1Gi）
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m    # 1 核
+              memory: 1Gi   # 1GB 内存（根据实际监控可调整）
+          # ?? 建议暂时注释健康检查，避免因接口未实现导致 CrashLoopBackOff
+          # livenessProbe:
+          #   httpGet:
+          #     path: /health
+          #     port: 8000
+          #   initialDelaySeconds: 30
+          #   periodSeconds: 10
+          # readinessProbe:
+          #   httpGet:
+          #     path: /ready
+          #     port: 8000
+          #   initialDelaySeconds: 5
+          #   periodSeconds: 5
+          imagePullPolicy: Always
 ---
 # Service配置：暴露python-web应用，供集群内访问
 apiVersion: v1
@@ -79,12 +70,11 @@ metadata:
   labels:
     app: python-web
 spec:
-  # Service类型：ClusterIP（仅集群内访问），如需外部访问可改为NodePort/LoadBalancer
   type: ClusterIP
   selector:
     app: python-web
   ports:
-  - name: http
-    port: 8000          # Service端口
-    targetPort: 8000    # 容器端口
-    protocol: TCP
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
