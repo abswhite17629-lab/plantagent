@@ -2,7 +2,7 @@ stages:
   - build
   - deploy
 
-# 构建阶段：保持不变
+# 构建阶段：保持你原有配置不变
 build:
   stage: build
   tags:
@@ -29,7 +29,7 @@ build:
   only:
     - main
 
-# 部署阶段：极简版本
+# 部署阶段：全部替换为python-web（匹配你的YAML）
 deploy:
   stage: deploy
   tags:
@@ -38,10 +38,19 @@ deploy:
     name: bitnami/kubectl:1.22.4
     entrypoint: [""]
   script:
+    # 1. 写入kubeconfig（保持不变）
     - printf "%s" "$KUBECONFIG_CONTENT" > /tmp/kubeconfig
     - export KUBECONFIG=/tmp/kubeconfig
-    - kubectl set image deployment/python-app python-app=$CI_REGISTRY_IMAGE:latest -n python-app
-    - kubectl rollout restart deployment/python-app -n python-app
+    # 2. 确保python-web命名空间存在（YAML里的命名空间）
+    - kubectl create namespace python-web || true
+    # 3. 应用你的YAML文件（确保Deployment/Service存在）
+    - kubectl apply -f /root/python-web-deployment.yaml
+    # 4. 核心修改：替换为python-web（名称+命名空间）
+    - kubectl set image deployment/python-web python-web=$CI_REGISTRY_IMAGE:latest -n python-web
+    # 5. 重启部署（同样替换为python-web）
+    - kubectl rollout restart deployment/python-web -n python-web
+    # 可选：验证部署状态（确保成功）
+    - kubectl rollout status deployment/python-web -n python-web
   needs:
     - build
   only:
