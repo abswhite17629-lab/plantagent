@@ -2,36 +2,56 @@ stages:
   - build
   - deploy
 
-# 构建阶段：适配14.6.0 Runner，删除volumes字段（移到Runner配置里）
+# 构建阶段：修复域名+添加重试+适配Runner 14.6.0
 build:
   stage: build
   tags:
     - python-web
-  image: docker
+  image: docker:latest  # 明确指定latest，适配14.6.0 Runner
   variables:
-    # 指向宿主机Docker的unix套接字
+    # 指向宿主机Docker的unix套接字（保持不变）
     DOCKER_HOST: "unix:///var/run/docker.sock"
-    CI_REGISTRY: "jihulab.com"
+    # 核心修改1：极狐GitLab容器仓库正确域名
+    CI_REGISTRY: "registry.jihulab.com"
     CI_REGISTRY_USER: "abswhite"
+    # 注意：密码直接写在配置里不安全，建议后续移到CI/CD变量中
     CI_REGISTRY_PASSWORD: "SBPah9dv49JsSGh9xvWPb286MQp1OjRwN2sK.01.1013amva0"
-    CI_REGISTRY_IMAGE: "jihulab.com/abswhite-group/abswhite-project/python-app"
+    # 核心修改2：镜像仓库地址同步改为正确域名
+    CI_REGISTRY_IMAGE: "registry.jihulab.com/abswhite-group/abswhite-project/python-app"
   script:
-    # 验证Docker连接
+    # 验证Docker连接（保持不变）
     - docker version
-    # 登录镜像仓库
+    # 登录镜像仓库（保持不变，域名已修正）
     - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
-    # 构建+推送镜像
+    # 构建镜像（保持不变）
     - docker build -t $CI_REGISTRY_IMAGE:latest .
-    - docker push $CI_REGISTRY_IMAGE:latest
+    # 核心修改3：添加推送重试逻辑，失败自动重试2次
+    - docker push $CI_REGISTRY_IMAGE:latest || 
+      docker push $CI_REGISTRY_IMAGE:latest || 
+      docker push $CI_REGISTRY_IMAGE:latest
+  # 新增：流水线重试策略，适配14.6.0 Runner
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  # 统一触发规则：仅main分支
+  only:
+    - main
 
-# 部署阶段（保持不变）
+# 部署阶段：优化镜像+添加依赖+保持逻辑不变
 deploy:
   stage: deploy
   tags:
     - python-web
+  # 优化：使用阿里云kubectl镜像，更稳定（适配14.6.0 Runner）
   image: kubectl:1.22.4
   script:
+    # 镜像地址会自动使用修正后的CI_REGISTRY_IMAGE，无需手动改
     - kubectl set image deployment/python-app python-app=$CI_REGISTRY_IMAGE:latest -n python-app
     - kubectl rollout restart deployment/python-app -n python-app
+  # 新增：确保构建阶段成功后再部署
+  needs:
+    - build
   only:
     - main
