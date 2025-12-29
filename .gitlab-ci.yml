@@ -44,13 +44,13 @@ deploy:
   stage: deploy
   tags:
     - python-web
-  # 优化：使用阿里云kubectl镜像，更稳定（适配14.6.0 Runner）
-  image: bitnami/kubectl:1.22.4
+  image:
+    name: bitnami/kubectl:1.22.4
+    entrypoint: [""]
   script:
-    # 镜像地址会自动使用修正后的CI_REGISTRY_IMAGE，无需手动改
+    # 使用 kubectl 命令设置镜像并重启部署
     - kubectl set image deployment/python-app python-app=$CI_REGISTRY_IMAGE:latest -n python-app
     - kubectl rollout restart deployment/python-app -n python-app
-  # 新增：确保构建阶段成功后再部署
   needs:
     - build
   only:
