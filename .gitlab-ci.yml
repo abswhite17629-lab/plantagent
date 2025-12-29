@@ -2,7 +2,7 @@ stages:
   - build
   - deploy
 
-# 构建阶段：修复域名+添加重试+适配Runner 14.6.0
+# 构建阶段：保留你所有原有配置（仅添加安全提醒注释）
 build:
   stage: build
   tags:
@@ -14,7 +14,7 @@ build:
     # 核心修改1：极狐GitLab容器仓库正确域名
     CI_REGISTRY: "registry.jihulab.com"
     CI_REGISTRY_USER: "abswhite"
-    # 注意：密码直接写在配置里不安全，建议后续移到CI/CD变量中
+    # 安全提醒：密码建议移到GitLab项目的CI/CD变量中（Settings -> CI/CD -> Variables）
     CI_REGISTRY_PASSWORD: "SBPah9dv49JsSGh9xvWPb286MQp1OjRwN2sK.01.1013amva0"
     # 核心修改2：镜像仓库地址同步改为正确域名
     CI_REGISTRY_IMAGE: "registry.jihulab.com/abswhite-group/abswhite-project/python-app"
@@ -39,15 +39,23 @@ build:
   only:
     - main
 
-# 部署阶段：优化镜像+添加依赖+保持逻辑不变
+# 部署阶段：新增kubeconfig配置逻辑，保留原有部署命令
 deploy:
   stage: deploy
   tags:
     - python-web
   image:
     name: bitnami/kubectl:1.22.4
-    entrypoint: [""]
+    entrypoint: [""]  # 保持原有entrypoint配置，避免kubectl镜像默认入口干扰
   script:
+    # ========== 新增核心步骤：配置K8s连接 ==========
+    # 1. 将GitLab的KUBECONFIG_CONTENT变量写入临时配置文件
+    - echo "$KUBECONFIG_CONTENT" > /tmp/kubeconfig
+    # 2. 告诉kubectl使用这个配置文件
+    - export KUBECONFIG=/tmp/kubeconfig
+    # 3. 可选：验证K8s集群连接（方便排查问题）
+    - kubectl get nodes
+    # ========== 保留你原有部署逻辑 ==========
     # 使用 kubectl 命令设置镜像并重启部署
     - kubectl set image deployment/python-app python-app=$CI_REGISTRY_IMAGE:latest -n python-app
     - kubectl rollout restart deployment/python-app -n python-app
@@ -55,3 +63,9 @@ deploy:
     - build
   only:
     - main
+  # 可选：添加部署重试策略（和build阶段保持一致）
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
