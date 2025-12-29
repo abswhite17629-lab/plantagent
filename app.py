@@ -1,325 +1,379 @@
+# !/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+YOLO11检测服务（容器版）
+集成：豆包AI分析 + MySQL自动建库/存储 + Redis缓存
+适配Linux/容器环境，容错设计：MySQL/Redis/豆包异常不影响核心检测功能
+"""
 import os
 import time
-import json
+import torch
 import requests
 import pymysql
 import redis
+from flask import Flask, request, jsonify
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, jsonify
-from ultralytics import YOLO
-import cv2
-from PIL import Image
-# 容错：如果config.py加载失败，使用默认配置
-try:
-    from config import *
-except ImportError:
-    print("⚠️ 未找到config.py，使用默认配置")
-    # 默认配置（适配容器环境）
-    UPLOAD_FOLDER = "/app/uploads"
-    RESULT_FOLDER = "/app/results"
-    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
-    MODEL_PATH = "./best.pt"  # 容器内相对路径（best.pt放在项目根目录）
-    
-    # MySQL配置（按需修改，先注释避免连接失败）
-    MYSQL_CONFIG = {
-        "host": "mysql-service.mysql.svc.cluster.local",
-        "user": "root",
-        "password": "123456",
-        "database": "yolo_detect",
-        "charset": "utf8mb4"
-    }
-    
-    # Redis配置（按需修改，先注释避免连接失败）
-    REDIS_CONFIG = {
-        "host": "redis-service.redis.svc.cluster.local",
-        "port": 6379,
-        "password": "123456",
-        "db": 0,
-        "decode_responses": True
-    }
-    
-    # 豆包配置（按需修改）
-    DOUBAO_CONFIG = {
-        "api_key": "",  # 替换为你的豆包API Key
-        "secret_key": "",  # 替换为你的豆包Secret Key
-        "token_expire": 3600  # Token过期时间（秒）
-    }
+
+# 导入配置文件（需确保config.py在同目录）
+import config
+
+# ===================== 基础环境初始化 =====================
+# 强制禁用GPU，避免容器/无GPU环境兼容问题
+torch.cuda.is_available = lambda: False
 
 # 初始化Flask应用
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['RESULT_FOLDER'] = RESULT_FOLDER
 
-# 创建文件夹（若不存在）
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(RESULT_FOLDER, exist_ok=True)
+# ===================== 目录初始化（容器环境必备） =====================
+def init_folders():
+    """初始化上传/结果目录，避免容器内路径不存在报错"""
+    for folder in [config.UPLOAD_FOLDER, config.RESULT_FOLDER]:
+        if not os.path.exists(folder):
+            try:
+                os.makedirs(folder)
+                print(f"✅ 成功创建目录：{folder}")
+            except Exception as e:
+                print(f"⚠️ 创建目录失败（不影响核心功能）：{folder} - {str(e)}")
 
-# ==================== MySQL/Redis 容错连接 ====================
-# 初始化MySQL连接（增加容错）
-def get_mysql_conn():
-    try:
-        conn = pymysql.connect(**MYSQL_CONFIG)
-        conn.autocommit(True)
-        return conn
-    except Exception as e:
-        print(f"❌ MySQL连接失败：{e}")
-        return None
-
-# 初始化Redis连接（增加容错）
-try:
-    redis_client = redis.Redis(**REDIS_CONFIG)
-    # 测试Redis连接
-    redis_client.ping()
-    print("✅ Redis连接成功")
-except Exception as e:
-    print(f"❌ Redis连接失败：{e}")
-    redis_client = None
-
-# 初始化YOLO11模型（修复路径，增加容错）
-try:
-    model = YOLO(MODEL_PATH)
-    print(f"✅ YOLO模型加载成功（路径：{MODEL_PATH}）")
-except Exception as e:
-    print(f"❌ YOLO模型加载失败：{e}")
-    model = None
-
-# ==================== 数据库初始化（首次运行执行，增加容错） ====================
-def init_mysql():
-    conn = get_mysql_conn()
-    if not conn:
-        print("⚠️ MySQL未连接，跳过表初始化")
-        return
-    try:
-        cursor = conn.cursor()
-        # 创建检测记录表格
-        create_table_sql = """
-        CREATE TABLE IF NOT EXISTS detect_records (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            filename VARCHAR(255) NOT NULL,
-            upload_time DATETIME NOT NULL,
-            img_path VARCHAR(255) NOT NULL,
-            result_img_path VARCHAR(255) NOT NULL,
-            detect_info TEXT,
-            ai_analysis TEXT,
-            total_targets INT
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """
-        cursor.execute(create_table_sql)
-        conn.close()
-        print("✅ MySQL表初始化完成")
-    except Exception as e:
-        print(f"❌ MySQL表初始化失败：{e}")
-
-# 首次运行调用初始化
-init_mysql()
-
-# ==================== 工具函数 ====================
-# 检查文件后缀是否允许
+# ===================== 文件格式校验 =====================
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    """校验上传文件格式是否符合要求"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in config.ALLOWED_EXTENSIONS
 
-# 获取豆包Token（Redis缓存，增加容错）
-def get_doubao_token():
-    if not redis_client:
-        return "❌ Redis未连接，无法缓存Token"
-    # 先从Redis取缓存
-    token = redis_client.get("doubao_token")
-    if token:
-        return token.decode('utf-8') if isinstance(token, bytes) else token
-    # 缓存未命中，调用API获取
-    url = "https://www.doubao.com/open/api/v1/auth/token"
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "api_key": DOUBAO_CONFIG["api_key"],
-        "secret_key": DOUBAO_CONFIG["secret_key"]
-    }
-    try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        response.raise_for_status()
-        token = response.json()["data"]["access_token"]
-        # 缓存Token（设置过期时间）
-        redis_client.setex("doubao_token", DOUBAO_CONFIG["token_expire"], token)
-        return token
-    except Exception as e:
-        print(f"❌ 获取豆包Token失败：{e}")
-        return None
+# ===================== MySQL模块（自动建库+存储，可选启用） =====================
+mysql_conn = None  # 全局MySQL连接对象
 
-# 豆包AI分析（增加容错）
-def analyze_with_doubao(detect_info):
-    if not DOUBAO_CONFIG["api_key"] or not DOUBAO_CONFIG["secret_key"]:
-        return "⚠️ 未配置豆包API密钥，跳过AI分析"
-    token = get_doubao_token()
-    if not token:
-        return "❌ 无法连接豆包大模型，请检查API密钥"
-
-    prompt = f"""
-    你是专业的YOLO11目标检测分析助手，分析以下结果：
-    1. 列出检测到的目标类别及数量；
-    2. 说明目标位置分布；
-    3. 判断图片场景；
-    4. 补充1-2个关键细节。
-    检测结果：{detect_info}
-    要求：分点说明，语言通俗。
+def init_mysql():
     """
-    url = "https://www.doubao.com/open/api/v1/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}"
-    }
-    data = {
-        "model": "doubao-lite",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.6
-    }
+    初始化MySQL：
+    1. 先连接服务器创建数据库（不存在则创建）
+    2. 再连接数据库创建检测日志表
+    3. 失败仅告警，不影响核心功能
+    """
+    global mysql_conn
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=30)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        return f"❌ 分析失败：{str(e)}"
+        # 1. 校验MySQL基础配置（host/user/password）
+        basic_config = {
+            "host": config.MYSQL_CONFIG.get("host"),
+            "user": config.MYSQL_CONFIG.get("user"),
+            "password": config.MYSQL_CONFIG.get("password"),
+            "charset": config.MYSQL_CONFIG.get("charset", "utf8mb4")
+        }
+        if not all([basic_config["host"], basic_config["user"]]):
+            print("⚠️ MySQL基础配置不完整（host/user缺失），跳过MySQL初始化")
+            return False
+        
+        # 2. 连接MySQL服务器（不指定数据库），创建yolo_detect数据库
+        temp_conn = pymysql.connect(**basic_config)
+        db_name = config.MYSQL_CONFIG["database"]
+        create_db_sql = f"CREATE DATABASE IF NOT EXISTS {db_name} DEFAULT CHARACTER SET utf8mb4;"
+        with temp_conn.cursor() as cursor:
+            cursor.execute(create_db_sql)
+        temp_conn.commit()
+        temp_conn.close()
+        print(f"✅ MySQL数据库 '{db_name}' 已创建/存在")
 
-# ==================== 路由（页面+接口） ====================
-# 首页（上传图片）
+        # 3. 连接新建的数据库，创建检测日志表
+        mysql_conn = pymysql.connect(**config.MYSQL_CONFIG)
+        create_table_sql = """
+        CREATE TABLE IF NOT EXISTS detect_log (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            filename VARCHAR(255) NOT NULL COMMENT '上传文件名',
+            detections TEXT NOT NULL COMMENT '检测结果JSON字符串',
+            ai_analysis TEXT COMMENT '豆包AI分析结果',
+            create_time DATETIME NOT NULL COMMENT '检测时间',
+            file_path VARCHAR(255) COMMENT '文件存储路径'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='YOLO检测日志表';
+        """
+        with mysql_conn.cursor() as cursor:
+            cursor.execute(create_table_sql)
+        mysql_conn.commit()
+        print("✅ MySQL检测日志表 'detect_log' 已创建/存在")
+        return True
+    except Exception as e:
+        print(f"⚠️ MySQL初始化失败（不影响核心功能）：{str(e)}")
+        mysql_conn = None
+        return False
+
+def save_to_mysql(filename, detections, ai_analysis, file_path):
+    """保存检测结果到MySQL，失败仅打印日志"""
+    if not mysql_conn:
+        return False
+    try:
+        insert_sql = """
+        INSERT INTO detect_log (filename, detections, ai_analysis, create_time, file_path)
+        VALUES (%s, %s, %s, %s, %s);
+        """
+        # 转换检测结果为字符串存储（JSON格式兼容）
+        detections_str = str(detections)
+        with mysql_conn.cursor() as cursor:
+            cursor.execute(insert_sql, (
+                filename, detections_str, ai_analysis,
+                datetime.now(), file_path
+            ))
+        mysql_conn.commit()
+        print(f"✅ 检测记录已保存到MySQL：{filename}")
+        return True
+    except Exception as e:
+        print(f"⚠️ 保存MySQL失败（不影响核心功能）：{str(e)}")
+        return False
+
+# ===================== Redis模块（缓存，可选启用） =====================
+redis_client = None  # 全局Redis客户端对象
+
+def init_redis():
+    """初始化Redis客户端，失败仅告警，不影响核心功能"""
+    global redis_client
+    try:
+        # 校验Redis基础配置
+        if not config.REDIS_CONFIG.get("host"):
+            print("⚠️ Redis配置不完整（host缺失），跳过Redis初始化")
+            return False
+        
+        # 建立连接并测试
+        redis_client = redis.Redis(**config.REDIS_CONFIG)
+        redis_client.ping()  # 测试连接
+        print("✅ Redis初始化成功")
+        return True
+    except Exception as e:
+        print(f"⚠️ Redis初始化失败（不影响核心功能）：{str(e)}")
+        redis_client = None
+        return False
+
+def save_to_redis(filename, detections, ai_analysis, expire=3600):
+    """缓存检测结果到Redis（1小时过期），失败仅打印日志"""
+    if not redis_client:
+        return False
+    try:
+        # 构造唯一缓存Key（文件名+时间戳，避免重复）
+        cache_key = f"yolo:detect:{filename}:{int(time.time())}"
+        # 构造缓存值（哈希类型，便于查询）
+        cache_value = {
+            "detections": str(detections),
+            "ai_analysis": ai_analysis,
+            "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "filename": filename
+        }
+        # 保存到Redis并设置过期时间
+        redis_client.hmset(cache_key, cache_value)
+        redis_client.expire(cache_key, expire)
+        print(f"✅ 检测记录已缓存到Redis：{cache_key}（过期时间{expire}秒）")
+        return True
+    except Exception as e:
+        print(f"⚠️ 保存Redis失败（不影响核心功能）：{str(e)}")
+        return False
+
+# ===================== 豆包AI模块（分析检测结果） =====================
+def call_doubao_ai(detections):
+    """调用豆包大模型，生成检测结果的自然语言分析，失败返回兜底提示"""
+    # 兜底提示（AI调用失败时返回）
+    fallback_msg = "豆包AI分析暂不可用，可直接查看检测结果"
+    
+    # 校验豆包API Key是否配置
+    if not config.DOUBAO_CONFIG["api_key"] or config.DOUBAO_CONFIG["api_key"] == "你的豆包API Key":
+        print("❌ 未配置有效豆包API Key，跳过AI分析")
+        return fallback_msg
+
+    # 构造豆包AI提示词（简洁易懂，适配检测结果）
+    prompt = f"""
+    请分析以下YOLO11目标检测结果，生成100字以内的自然语言描述：
+    检测结果：{detections}
+    要求：
+    1. 说明检测到的目标类型和数量；
+    2. 语言通俗，无技术术语；
+    3. 简洁明了，重点突出。
+    """
+
+    try:
+        # 调用豆包API
+        response = requests.post(
+            config.DOUBAO_CONFIG["api_url"],
+            headers={
+                "Authorization": f"Bearer {config.DOUBAO_CONFIG['api_key']}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": config.DOUBAO_CONFIG["model"],
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.6,  # 随机性：0-1，越小越稳定
+                "max_tokens": 150     # 最大返回字数
+            },
+            timeout=config.DOUBAO_CONFIG["timeout"]
+        )
+
+        # 解析返回结果
+        if response.status_code == 200:
+            result = response.json()
+            ai_analysis = result["choices"][0]["message"]["content"].strip()
+            return ai_analysis
+        else:
+            print(f"❌ 豆包API调用失败：{response.status_code} - {response.text}")
+            return fallback_msg
+    except Exception as e:
+        print(f"❌ 豆包AI调用异常：{str(e)}")
+        return fallback_msg
+
+# ===================== YOLO11模型加载 =====================
+model = None  # 全局YOLO模型对象
+
+try:
+    from ultralytics import YOLO
+    # 从配置文件读取模型路径（官方yolo11n.pt，自动下载）
+    model = YOLO(config.MODEL_PATH)
+    print(f"✅ YOLO11模型加载成功（模型路径：{config.MODEL_PATH}）")
+except Exception as e:
+    print(f"❌ YOLO11模型加载失败：{str(e)}")
+
+# ===================== Flask路由 =====================
 @app.route('/')
 def index():
-    return render_template('index.html')
+    """主页：提供图片上传表单"""
+    return """
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <title>YOLO11检测服务（容器版）</title>
+        <style>
+            body {max-width: 800px; margin: 20px auto; padding: 0 20px; font-family: Arial;}
+            h1 {color: #2c3e50;}
+            .form-box {margin-top: 20px; padding: 20px; border: 1px solid #eee; border-radius: 8px;}
+            input[type=file] {margin: 10px 0; padding: 8px;}
+            button {padding: 8px 20px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;}
+            button:hover {background: #2980b9;}
+        </style>
+    </head>
+    <body>
+        <h1>YOLO11目标检测服务</h1>
+        <p>集成豆包AI分析 + MySQL存储 + Redis缓存（容器版）</p>
+        <div class="form-box">
+            <form action="/detect" method="post" enctype="multipart/form-data">
+                <input type="file" name="image" accept="image/*" required>
+                <button type="submit">上传图片并检测</button>
+            </form>
+        </div>
+        <p><a href="/history">查看检测历史记录</a></p>
+    </body>
+    </html>
+    """
 
-# 上传图片并检测（增加容错）
 @app.route('/detect', methods=['POST'])
 def detect():
-    # 检查模型是否加载
+    """核心检测接口：接收图片→YOLO检测→豆包AI分析→MySQL/Redis存储"""
+    # 模型未加载时返回错误
     if not model:
-        return "❌ YOLO模型未加载，无法检测", 500
-    # 检查是否有文件上传
-    if 'file' not in request.files:
-        return "❌ 未选择文件", 400
-    file = request.files['file']
-    if file.filename == '':
-        return "❌ 文件名为空", 400
-    if file and allowed_file(file.filename):
-        # 生成唯一文件名（避免重复）
-        timestamp = int(time.time())
-        filename = f"{timestamp}_{file.filename}"
-        img_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(img_path)
+        return jsonify({"code": 500, "msg": "YOLO11模型未加载，请检查模型配置"}), 500
 
-        # 执行YOLO11检测
-        try:
-            results = model(img_path)
-            result = results[0]
-        except Exception as e:
-            return f"❌ 检测失败：{str(e)}", 500
-
-        # 整理检测信息
-        detect_info = {
-            "resolution": f"{result.orig_shape[1]}×{result.orig_shape[0]}",
-            "total_targets": len(result.boxes),
-            "targets": []
-        }
-        for box in result.boxes:
-            cls_name = result.names[int(box.cls)]
-            confidence = round(float(box.conf), 2)
-            x1, y1, x2, y2 = [round(x) for x in box.xyxy.tolist()[0]]
-            detect_info["targets"].append({
-                "class": cls_name,
-                "confidence": confidence,
-                "position": f"左上({x1},{y1}) 右下({x2},{y2})"
-            })
-        detect_info_str = json.dumps(detect_info, ensure_ascii=False)
-
-        # 生成检测结果图片
-        try:
-            result_img = result.plot()
-            result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
-            result_img_path = os.path.join(app.config['RESULT_FOLDER'], filename)
-            Image.fromarray(result_img).save(result_img_path)
-        except Exception as e:
-            return f"❌ 生成结果图片失败：{str(e)}", 500
-
-        # 调用豆包AI分析
-        ai_analysis = analyze_with_doubao(detect_info_str)
-
-        # 保存到MySQL（增加容错）
-        record_id = None
-        conn = get_mysql_conn()
-        if conn:
-            try:
-                cursor = conn.cursor()
-                insert_sql = """
-                INSERT INTO detect_records (filename, upload_time, img_path, result_img_path, detect_info, ai_analysis, total_targets)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """
-                cursor.execute(insert_sql, (
-                    file.filename,
-                    datetime.now(),
-                    img_path,
-                    result_img_path,
-                    detect_info_str,
-                    ai_analysis,
-                    len(result.boxes)
-                ))
-                record_id = cursor.lastrowid
-                conn.close()
-            except Exception as e:
-                print(f"❌ 保存MySQL失败：{e}")
-                ai_analysis += "\n⚠️ 检测结果未保存到数据库"
-
-        # 跳转到结果页（无MySQL记录则传空）
-        if record_id:
-            return redirect(url_for('result', record_id=record_id))
-        else:
+    try:
+        # 1. 校验上传文件
+        if 'image' not in request.files:
+            return jsonify({"code": 400, "msg": "未上传图片文件"}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({"code": 400, "msg": "图片文件名不能为空"}), 400
+        
+        # 2. 校验文件格式
+        if not (file and allowed_file(file.filename)):
             return jsonify({
-                "code": 200,
-                "msg": "检测成功（未保存到数据库）",
-                "detect_info": detect_info,
-                "ai_analysis": ai_analysis,
-                "result_img_path": result_img_path
+                "code": 400,
+                "msg": f"不支持的文件格式，仅允许：{','.join(config.ALLOWED_EXTENSIONS)}"
+            }), 400
+
+        # 3. 保存图片到容器指定目录
+        filename = os.path.basename(file.filename)
+        img_path = os.path.join(config.UPLOAD_FOLDER, filename)
+        file.save(img_path)
+        print(f"✅ 上传图片已保存：{img_path}")
+
+        # 4. 执行YOLO11检测
+        results = model(img_path)
+        
+        # 5. 解析检测结果
+        detections = []
+        for r in results:
+            for box in r.boxes:
+                detections.append({
+                    "类别": model.names[int(box.cls)],
+                    "置信度": round(float(box.conf), 2),
+                    "坐标": [round(x, 2) for x in box.xyxy.tolist()[0]]  # [x1,y1,x2,y2]
+                })
+
+        # 6. 调用豆包AI分析检测结果
+        ai_analysis = call_doubao_ai(detections)
+
+        # 7. 保存结果到MySQL和Redis（失败不影响返回）
+        save_to_mysql(filename, detections, ai_analysis, img_path)
+        save_to_redis(filename, detections, ai_analysis)
+
+        # 8. 返回最终结果
+        return jsonify({
+            "code": 200,
+            "msg": "检测成功（已尝试保存到MySQL/Redis）",
+            "检测结果": detections,
+            "豆包AI分析": ai_analysis,
+            "文件名称": filename,
+            "文件路径": img_path
+        }), 200
+
+    except Exception as e:
+        # 捕获所有异常，返回友好提示
+        print(f"❌ 检测接口异常：{str(e)}")
+        return jsonify({"code": 500, "msg": f"检测失败：{str(e)}"}), 500
+
+@app.route('/history', methods=['GET'])
+def get_history():
+    """查询MySQL中的检测历史记录（最近100条）"""
+    # MySQL未初始化时返回错误
+    if not mysql_conn:
+        return jsonify({"code": 500, "msg": "MySQL未初始化/连接失败，无法查询历史记录"}), 500
+    
+    try:
+        # 查询最近100条记录
+        query_sql = """
+        SELECT filename, detections, ai_analysis, create_time, file_path
+        FROM detect_log
+        ORDER BY create_time DESC
+        LIMIT 100;
+        """
+        with mysql_conn.cursor() as cursor:
+            cursor.execute(query_sql)
+            results = cursor.fetchall()
+        
+        # 格式化结果（转换为易读的JSON格式）
+        history_list = []
+        for row in results:
+            history_list.append({
+                "文件名": row[0],
+                "检测结果": eval(row[1]),  # 还原为列表（仅信任内部数据，生产环境建议用json.loads）
+                "豆包AI分析": row[2],
+                "检测时间": row[3].strftime("%Y-%m-%d %H:%M:%S"),
+                "文件路径": row[4]
             })
-    else:
-        return "❌ 不支持的文件格式", 400
+        
+        return jsonify({
+            "code": 200,
+            "msg": "历史记录查询成功",
+            "记录总数": len(history_list),
+            "历史记录": history_list
+        }), 200
+    except Exception as e:
+        print(f"❌ 历史查询接口异常：{str(e)}")
+        return jsonify({"code": 500, "msg": f"查询历史记录失败：{str(e)}"}), 500
 
-# 检测结果页（增加容错）
-@app.route('/result/<int:record_id>')
-def result(record_id):
-    conn = get_mysql_conn()
-    if not conn:
-        return "❌ MySQL未连接，无法获取记录", 500
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
-    cursor.execute("SELECT * FROM detect_records WHERE id = %s", (record_id,))
-    record = cursor.fetchone()
-    conn.close()
-    if not record:
-        return "❌ 记录不存在", 404
-    # 解析检测信息
-    record['detect_info'] = json.loads(record['detect_info'])
-    return render_template('result.html', record=record)
-
-# 历史记录页（增加容错）
-@app.route('/history')
-def history():
-    conn = get_mysql_conn()
-    if not conn:
-        return "❌ MySQL未连接，无法获取历史记录", 500
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
-    cursor.execute("SELECT * FROM detect_records ORDER BY upload_time DESC")
-    records = cursor.fetchall()
-    conn.close()
-    # 解析每个记录的检测信息
-    for record in records:
-        record['detect_info'] = json.loads(record['detect_info'])
-    return render_template('history.html', records=records)
-
-# 健康检查接口（适配K8s健康检查）
-@app.route('/health')
-def health():
-    return jsonify({
-        "status": "healthy",
-        "model_loaded": model is not None,
-        "mysql_connected": get_mysql_conn() is not None,
-        "redis_connected": redis_client is not None
-    })
-
-# ==================== 启动程序 ====================
+# ===================== 程序入口 =====================
 if __name__ == '__main__':
-    # 端口改为8000（匹配YAML配置），适配容器环境
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    # 1. 初始化容器目录
+    init_folders()
+    # 2. 初始化MySQL（可选）
+    init_mysql()
+    # 3. 初始化Redis（可选）
+    init_redis()
+    # 4. 启动Flask服务（从配置文件读取参数）
+    print(f"🚀 启动YOLO11检测服务：http://{config.FLASK_CONFIG['host']}:{config.FLASK_CONFIG['port']}")
+    app.run(
+        host=config.FLASK_CONFIG["host"],
+        port=config.FLASK_CONFIG["port"],
+        debug=config.FLASK_CONFIG["debug"]
+    )

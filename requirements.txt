@@ -1,22 +1,17 @@
-# Web框架
+# YOLO核心依赖
+ultralytics==8.2.86
+torch==2.1.0
 flask==2.3.3
-
-# MySQL/Redis数据存储
-pymysql==1.1.0
-redis==5.0.1
-
-# 豆包API调用
-requests==2.31.0
-
-# YOLO11核心依赖（已单独装torch，这里只装ultralytics）
-ultralytics>=8.2.0
-
-
-# 图像处理依赖
 opencv-python==4.8.1.78
 pillow==10.1.0
-numpy==1.26.4
-# 补充依赖（MySQL认证+YOLO兼容）
-cryptography>=41.0.0
-ultralytics[yolo11]>=8.2.04
+numpy==1.26.2
 
+# 豆包AI调用依赖
+requests==2.31.0
+
+# MySQL/Redis依赖（启用必须加）
+pymysql==1.1.0
+redis==4.6.0
+
+# 可选：环境变量加载（本地测试用）
+# python-dotenv==1.0.0

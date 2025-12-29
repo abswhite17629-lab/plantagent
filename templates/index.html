@@ -1,24 +1,210 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>YOLO11 目标检测工具</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-        .upload-box { border: 2px dashed #ccc; padding: 40px; text-align: center; border-radius: 10px; }
-        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
-        a { color: #007bff; text-decoration: none; margin-top: 20px; display: inline-block; }
-    </style>
-</head>
-<body>
-    <h1>YOLO11 目标检测 + 豆包AI分析</h1>
-    <div class="upload-box">
-        <form action="/detect" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" accept=".jpg,.jpeg,.png,.bmp" required>
-            <br><br>
-            <button type="submit">上传并检测</button>
-        </form>
-    </div>
-    <a href="/history">查看历史检测记录</a>
-</body>
-</html>
+@app.route('/')
+def index():
+    """主页：美化后的图片上传表单"""
+    return """
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>YOLO11 智能目标检测平台</title>
+        <style>
+            /* 全局样式重置 */
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            }
+
+            /* 页面背景 */
+            body {
+                background-color: #f5f7fa;
+                min-height: 100vh;
+                padding: 20px 0;
+            }
+
+            /* 主容器：居中、卡片式 */
+            .container {
+                max-width: 700px;
+                margin: 0 auto;
+                padding: 0 20px;
+            }
+
+            /* 头部标题区 */
+            .header {
+                text-align: center;
+                margin-bottom: 30px;
+            }
+
+            .header h1 {
+                color: #1d2129;
+                font-size: 2.2rem;
+                font-weight: 600;
+                margin-bottom: 8px;
+            }
+
+            .header p {
+                color: #666;
+                font-size: 1rem;
+                line-height: 1.5;
+            }
+
+            /* 卡片容器：阴影、圆角 */
+            .card {
+                background: #fff;
+                border-radius: 12px;
+                box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.08);
+                padding: 30px;
+                margin-bottom: 20px;
+                transition: box-shadow 0.3s ease;
+            }
+
+            .card:hover {
+                box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.1);
+            }
+
+            /* 表单样式 */
+            .upload-form {
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            /* 文件上传按钮美化 */
+            .file-input-wrapper {
+                position: relative;
+                display: inline-block;
+                width: 100%;
+                cursor: pointer;
+            }
+
+            .file-input {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                opacity: 0;
+                cursor: pointer;
+                z-index: 2;
+            }
+
+            .file-input-label {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 16px;
+                border: 2px dashed #dcdfe6;
+                border-radius: 8px;
+                color: #666;
+                text-align: center;
+                transition: all 0.3s ease;
+                z-index: 1;
+            }
+
+            .file-input-label:hover {
+                border-color: #4096ff;
+                color: #4096ff;
+            }
+
+            .file-input-label i {
+                font-size: 2rem;
+                margin-bottom: 8px;
+                display: block;
+            }
+
+            /* 提交按钮 */
+            .submit-btn {
+                background-color: #4096ff;
+                color: #fff;
+                border: none;
+                border-radius: 8px;
+                padding: 14px 0;
+                font-size: 1rem;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+
+            .submit-btn:hover {
+                background-color: #337ecc;
+                transform: translateY(-2px);
+            }
+
+            .submit-btn:active {
+                transform: translateY(0);
+            }
+
+            /* 历史记录链接 */
+            .history-link {
+                text-align: center;
+                margin-top: 20px;
+            }
+
+            .history-link a {
+                color: #4096ff;
+                text-decoration: none;
+                font-size: 0.95rem;
+                transition: color 0.3s ease;
+            }
+
+            .history-link a:hover {
+                color: #337ecc;
+                text-decoration: underline;
+            }
+
+            /* 响应式适配：手机端 */
+            @media (max-width: 576px) {
+                .header h1 {
+                    font-size: 1.8rem;
+                }
+
+                .card {
+                    padding: 20px;
+                }
+
+                .file-input-label {
+                    padding: 12px;
+                }
+            }
+        </style>
+        <!-- 引入图标（可选，提升视觉效果） -->
+        <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    </head>
+    <body>
+        <div class="container">
+            <!-- 头部标题 -->
+            <div class="header">
+                <h1>YOLO11 智能目标检测平台</h1>
+                <p>集成豆包AI分析 · MySQL存储 · Redis缓存 | 支持图片快速检测</p>
+            </div>
+
+            <!-- 上传卡片 -->
+            <div class="card">
+                <form action="/detect" method="post" enctype="multipart/form-data" class="upload-form">
+                    <!-- 文件上传区域 -->
+                    <div class="file-input-wrapper">
+                        <input type="file" name="image" accept="image/*" required class="file-input" id="image-upload">
+                        <label for="image-upload" class="file-input-label">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <span>点击或拖拽文件至此处上传</span>
+                            <small>支持格式：png、jpg、jpeg、bmp</small>
+                        </label>
+                    </div>
+
+                    <!-- 提交按钮 -->
+                    <button type="submit" class="submit-btn">
+                        <i class="fas fa-search"></i> 开始检测
+                    </button>
+                </form>
+            </div>
+
+            <!-- 历史记录链接 -->
+            <div class="history-link">
+                <a href="/history"><i class="fas fa-history"></i> 查看检测历史记录</a>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
