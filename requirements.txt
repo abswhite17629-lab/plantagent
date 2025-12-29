@@ -15,7 +15,8 @@ git+https://github.com/THU-MIG/yolov10.git
 # 图像处理依赖
 opencv-python==4.8.1.78
 pillow==10.1.0
-numpy==1.26.4cryptography>=41.0.0
-ultralytics[yolo11]>=8.2.0
+numpy==1.26.4
+# 补充依赖（MySQL认证+YOLO兼容）
 cryptography>=41.0.0
+ultralytics[yolo11]>=8.2.04
 
