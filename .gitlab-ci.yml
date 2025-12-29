@@ -2,7 +2,7 @@ stages:
   - build
   - deploy
 
-# 构建阶段：保持你原有配置不变
+# 构建阶段：保持不变
 build:
   stage: build
   tags:
@@ -29,7 +29,7 @@ build:
   only:
     - main
 
-# 部署阶段：全部替换为python-web（匹配你的YAML）
+# 部署阶段：使用代码库中的YAML文件（相对路径）
 deploy:
   stage: deploy
   tags:
@@ -41,15 +41,14 @@ deploy:
     # 1. 写入kubeconfig（保持不变）
     - printf "%s" "$KUBECONFIG_CONTENT" > /tmp/kubeconfig
     - export KUBECONFIG=/tmp/kubeconfig
-    # 2. 确保python-web命名空间存在（YAML里的命名空间）
+    # 2. 确保python-web命名空间存在（已存在则忽略）
     - kubectl create namespace python-web || true
-    # 3. 应用你的YAML文件（确保Deployment/Service存在）
-    - kubectl apply -f /root/python-web-deployment.yaml
-    # 4. 核心修改：替换为python-web（名称+命名空间）
+    # 3. 应用代码库中的YAML文件（相对路径，关键修改）
+    - kubectl apply -f ./python-web-deployment.yaml
+    # 4. 更新镜像（匹配YAML的名称/命名空间）
     - kubectl set image deployment/python-web python-web=$CI_REGISTRY_IMAGE:latest -n python-web
-    # 5. 重启部署（同样替换为python-web）
+    # 5. 重启部署并验证
     - kubectl rollout restart deployment/python-web -n python-web
-    # 可选：验证部署状态（确保成功）
     - kubectl rollout status deployment/python-web -n python-web
   needs:
     - build

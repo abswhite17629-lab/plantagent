@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-web
+  namespace: python-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: python-web
+  template:
+    metadata:
+      labels:
+        app: python-web
+    spec:
+      containers:
+      - name: python-web
+        image: registry.jihulab.com/abswhite-group/abswhite-project/python-app:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: MYSQL_HOST
+          value: "mysql-service.mysql.svc.cluster.local"
+        - name: MYSQL_PASSWORD
+          value: "123456"
+        - name: REDIS_HOST
+          value: "redis-service.redis.svc.cluster.local"
+        - name: REDIS_PASSWORD
+          value: "123456"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-web-service
+  namespace: python-web
+spec:
+  selector:
+    app: python-web
+  ports:
+  - port: 8000
+    targetPort: 8000
+  clusterIP: None
