@@ -19,18 +19,25 @@ RUN echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye main contrib
 # 设置工作目录
 WORKDIR /app
 
-# 复制依赖清单
+# 复制依赖清单（确保requirements.txt包含所有必要包）
 COPY requirements.txt .
 
-# 升级pip + 安装Python依赖（国内PyPI源）
+# 升级pip + 安装Python依赖（国内PyPI源，避免超时）
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 复制项目所有文件（包括best.pt模型）
+# 复制项目所有文件（包括best.pt模型、templates模板、app.py等）
 COPY . .
 
-# 暴露Flask服务端口
-EXPOSE 5000
+# 关键：创建app.py需要的上传/结果目录（避免FileNotFoundError）
+RUN mkdir -p /app/uploads /app/results
 
-# 启动Flask服务
-CMD ["flask", "run", "--host=0.0.0.0", "--port=5000"]
+# 暴露正确的端口（匹配app.py的8000端口）
+EXPOSE 8000
+
+# 设置Flask环境变量 + 启动服务（适配app.py入口）
+ENV FLASK_APP=app.py
+CMD ["flask", "run", "--host=0.0.0.0", "--port=8000"]
+
+# 备选启动方式（如果flask run有问题，可改用python直接启动）
+# CMD ["python", "app.py"]
