@@ -2,7 +2,7 @@ stages:
   - build
   - deploy
 
-# 构建阶段：保持你原有配置不变
+# 构建阶段：保持不变
 build:
   stage: build
   tags:
@@ -29,7 +29,7 @@ build:
   only:
     - main
 
-# 部署阶段：修复kubeconfig写入格式 + 验证证书
+# 部署阶段：极简版本
 deploy:
   stage: deploy
   tags:
@@ -38,17 +38,8 @@ deploy:
     name: bitnami/kubectl:1.22.4
     entrypoint: [""]
   script:
-    # ========== 修复核心：用printf代替echo，避免换行/空格破坏证书格式 ==========
-    # 1. 用printf写入kubeconfig（保留原始格式，无多余换行）
     - printf "%s" "$KUBECONFIG_CONTENT" > /tmp/kubeconfig
-    # 2. 验证kubeconfig格式（可选，方便排查）
-    - cat /tmp/kubeconfig  # 查看写入的配置是否完整（流水线日志可看）
-    - kubectl config view --kubeconfig=/tmp/kubeconfig  # 验证配置是否合法
-    # 3. 导出KUBECONFIG环境变量
     - export KUBECONFIG=/tmp/kubeconfig
-    # 4. 验证集群连接（重试机制，避免网络抖动）
-    - kubectl get nodes --request-timeout=10s || kubectl get nodes --request-timeout=10s
-    # ========== 保留原有部署逻辑 ==========
     - kubectl set image deployment/python-app python-app=$CI_REGISTRY_IMAGE:latest -n python-app
     - kubectl rollout restart deployment/python-app -n python-app
   needs:
