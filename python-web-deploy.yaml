@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "18"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"python-web"},"name":"python-web","namespace":"python-web"},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"python-web"}},"strategy":{"rollingUpdate":{"maxSurge":1,"maxUnavailable":0},"type":"RollingUpdate"},"template":{"metadata":{"labels":{"app":"python-web"}},"spec":{"containers":[{"env":[{"name":"MYSQL_HOST","value":"mysql-service.mysql.svc.cluster.local"},{"name":"MYSQL_PASSWORD","value":"123456"},{"name":"REDIS_HOST","value":"redis-service.redis.svc.cluster.local"},{"name":"REDIS_PASSWORD","value":"123456"}],"image":"registry.jihulab.com/abswhite-group/abswhite-project/python-app:latest","imagePullPolicy":"Always","name":"python-web","ports":[{"containerPort":8000,"protocol":"TCP"}],"resources":{"limits":{"cpu":"1000m","memory":"1Gi"},"requests":{"cpu":"200m","memory":"512Mi"}}}],"imagePullSecrets":[{"name":"jihulab-registry"}]}}}}
+  creationTimestamp: "2025-12-29T07:14:20Z"
+  generation: 20
+  labels:
+    app: python-web
+  name: python-web
+  namespace: python-web
+  resourceVersion: "190146"
+  uid: d5456fd1-20b9-4cc8-8673-7f0eb9ed7abc
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: python-web
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2025-12-30T12:15:39Z"
+      creationTimestamp: null
+      labels:
+        app: python-web
+    spec:
+      containers:
+      - env:
+        - name: MYSQL_HOST
+          value: mysql-service.mysql.svc.cluster.local
+        - name: MYSQL_PASSWORD
+          value: "123456"
+        - name: REDIS_HOST
+          value: redis-service.redis.svc.cluster.local
+        - name: REDIS_PASSWORD
+          value: "123456"
+        image: registry.jihulab.com/abswhite-group/abswhite-project/python-app:latest
+        imagePullPolicy: Always
+        name: python-web
+        ports:
+        - containerPort: 8000
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 200m
+            memory: 512Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: jihulab-registry
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+status:
+  availableReplicas: 2
+  conditions:
+  - lastTransitionTime: "2025-12-29T07:14:20Z"
+    lastUpdateTime: "2025-12-30T12:15:45Z"
+    message: ReplicaSet "python-web-55784994fc" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  - lastTransitionTime: "2025-12-30T12:30:35Z"
+    lastUpdateTime: "2025-12-30T12:30:35Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  observedGeneration: 20
+  readyReplicas: 2
+  replicas: 2
+  updatedReplicas: 2
