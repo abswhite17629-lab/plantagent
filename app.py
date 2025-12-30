@@ -50,9 +50,10 @@ mysql_conn = None  # 全局MySQL连接对象
 def init_mysql():
     """
     初始化MySQL：
-    1. 自动创建数据库/表（包含question字段）；
+    1. 自动创建数据库/表（filename允许为空，解决1048错误）；
     2. 自动检查并补全缺失的question字段（解决1054错误）；
-    3. 兼容MySQL 8.0语法，容错设计。
+    3. 自动修复filename的非空约束（解决纯文字提问保存失败）；
+    4. 兼容MySQL 8.0语法，容错设计。
     """
     global mysql_conn
     try:
@@ -79,17 +80,17 @@ def init_mysql():
         temp_conn.close()
         print(f"✅ MySQL数据库 '{db_name}' 已创建/存在")
 
-        # 3. 连接数据库并创建表（包含question字段）
+        # 3. 连接数据库并创建表（filename允许为空）
         mysql_config_full = config.MYSQL_CONFIG.copy()
         mysql_config_full["connect_timeout"] = 10
         mysql_conn = pymysql.connect(**mysql_config_full)
         
-        # 3.1 创建表的SQL（包含question字段）
+        # 3.1 创建表的SQL（关键：filename去掉NOT NULL，允许为空）
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS detect_log (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            filename VARCHAR(255) NOT NULL COMMENT '上传文件名',
-            detections TEXT NOT NULL COMMENT '检测结果JSON字符串',
+            filename VARCHAR(255) COMMENT '上传文件名',  -- 去掉NOT NULL，允许为空
+            detections TEXT COMMENT '检测结果JSON字符串', -- 去掉NOT NULL，纯文字提问时为空
             ai_analysis TEXT COMMENT '豆包AI分析结果',
             question TEXT COMMENT '用户提问文本',
             create_time DATETIME NOT NULL COMMENT '检测时间',
@@ -99,9 +100,8 @@ def init_mysql():
         with mysql_conn.cursor() as cursor:
             cursor.execute(create_table_sql)
         
-        # 3.2 关键：自动检查并添加缺失的question字段（解决1054错误）
+        # 3.2 修复1：自动检查并添加缺失的question字段（解决1054错误）
         with mysql_conn.cursor() as cursor:
-            # 查询系统表，判断字段是否存在
             check_column_sql = f"""
             SELECT COLUMN_NAME 
             FROM information_schema.COLUMNS 
@@ -112,7 +112,6 @@ def init_mysql():
             cursor.execute(check_column_sql)
             column_exists = cursor.fetchone()
             
-            # 字段不存在则添加
             if not column_exists:
                 add_column_sql = """
                 ALTER TABLE detect_log 
@@ -124,8 +123,54 @@ def init_mysql():
             else:
                 print("✅ question字段已存在，无需补全")
         
+        # 3.3 修复2：自动去掉filename的非空约束（解决1048错误）
+        with mysql_conn.cursor() as cursor:
+            # 查询filename字段的是否为NOT NULL
+            check_null_sql = f"""
+            SELECT IS_NULLABLE 
+            FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = '{db_name}' 
+            AND TABLE_NAME = 'detect_log' 
+            AND COLUMN_NAME = 'filename';
+            """
+            cursor.execute(check_null_sql)
+            is_nullable = cursor.fetchone()[0]
+            
+            # 如果是NO（非空），修改为YES（允许为空）
+            if is_nullable == 'NO':
+                alter_filename_sql = """
+                ALTER TABLE detect_log 
+                MODIFY COLUMN filename VARCHAR(255) COMMENT '上传文件名';
+                """
+                cursor.execute(alter_filename_sql)
+                print("✅ 自动修复filename字段：去掉非空约束，允许为空")
+            else:
+                print("✅ filename字段已允许为空，无需修复")
+        
+        # 3.4 修复3：detections字段允许为空（纯文字提问时无检测结果）
+        with mysql_conn.cursor() as cursor:
+            check_detections_null = f"""
+            SELECT IS_NULLABLE 
+            FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = '{db_name}' 
+            AND TABLE_NAME = 'detect_log' 
+            AND COLUMN_NAME = 'detections';
+            """
+            cursor.execute(check_detections_null)
+            detections_nullable = cursor.fetchone()[0]
+            
+            if detections_nullable == 'NO':
+                alter_detections_sql = """
+                ALTER TABLE detect_log 
+                MODIFY COLUMN detections TEXT COMMENT '检测结果JSON字符串';
+                """
+                cursor.execute(alter_detections_sql)
+                print("✅ 自动修复detections字段：去掉非空约束，允许为空")
+            else:
+                print("✅ detections字段已允许为空，无需修复")
+        
         mysql_conn.commit()
-        print("✅ MySQL检测日志表 'detect_log' 初始化完成（包含question字段）")
+        print("✅ MySQL检测日志表 'detect_log' 初始化完成（兼容纯文字/图片交互）")
         return True
     except pymysql.err.OperationalError as e:
         print(f"❌ MySQL连接失败：{str(e)}")
@@ -137,7 +182,7 @@ def init_mysql():
         return False
 
 def save_to_mysql(filename, question, detections, ai_analysis, file_path):
-    """保存交互结果到MySQL，失败仅打印日志"""
+    """保存交互结果到MySQL，失败仅打印日志（兼容纯文字提问，空值处理）"""
     if not mysql_conn:
         return False
     try:
@@ -145,12 +190,17 @@ def save_to_mysql(filename, question, detections, ai_analysis, file_path):
         INSERT INTO detect_log (filename, question, detections, ai_analysis, create_time, file_path)
         VALUES (%s, %s, %s, %s, %s, %s);
         """
-        # 转换检测结果为字符串存储（JSON格式兼容）
-        detections_str = str(detections) if detections else None
+        # 空值处理：None替换为空字符串，避免MySQL null报错
+        filename_str = filename if filename else ""
+        detections_str = str(detections) if detections else ""
+        question_str = question if question else ""
+        ai_analysis_str = ai_analysis if ai_analysis else ""
+        file_path_str = file_path if file_path else ""
+        
         with mysql_conn.cursor() as cursor:
             cursor.execute(insert_sql, (
-                filename, question, detections_str, ai_analysis,
-                datetime.now(), file_path
+                filename_str, question_str, detections_str, ai_analysis_str,
+                datetime.now(), file_path_str
             ))
         mysql_conn.commit()
         print(f"✅ 交互记录已保存到MySQL：{'文件='+filename if filename else '纯文字提问'}")
@@ -395,13 +445,15 @@ def get_history():
         # 格式化结果（转换为易读的JSON格式）
         history_list = []
         for row in results:
+            # 处理detections空值，避免eval报错
+            detections_data = eval(row[2]) if row[2] and row[2] != "" else None
             history_list.append({
-                "文件名": row[0],
-                "用户提问": row[1],
-                "检测结果": eval(row[2]) if row[2] else None,  # 还原为列表（仅信任内部数据）
-                "豆包AI分析": row[3],
+                "文件名": row[0] if row[0] else "纯文字提问",
+                "用户提问": row[1] if row[1] else "",
+                "检测结果": detections_data,
+                "豆包AI分析": row[3] if row[3] else "",
                 "交互时间": row[4].strftime("%Y-%m-%d %H:%M:%S"),
-                "文件路径": row[5]
+                "文件路径": row[5] if row[5] else ""
             })
         
         return jsonify({
