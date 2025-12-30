@@ -49,7 +49,10 @@ mysql_conn = None  # 全局MySQL连接对象
 
 def init_mysql():
     """
-    初始化MySQL：简化逻辑，修复SQL语法错误，包含question字段
+    初始化MySQL：
+    1. 自动创建数据库/表（包含question字段）；
+    2. 自动检查并补全缺失的question字段（解决1054错误）；
+    3. 兼容MySQL 8.0语法，容错设计。
     """
     global mysql_conn
     try:
@@ -76,12 +79,12 @@ def init_mysql():
         temp_conn.close()
         print(f"✅ MySQL数据库 '{db_name}' 已创建/存在")
 
-        # 3. 连接数据库并创建表（包含question字段，删除多余ALTER语句）
+        # 3. 连接数据库并创建表（包含question字段）
         mysql_config_full = config.MYSQL_CONFIG.copy()
         mysql_config_full["connect_timeout"] = 10
         mysql_conn = pymysql.connect(**mysql_config_full)
         
-        # 核心：创建表的SQL（包含question字段，无语法错误）
+        # 3.1 创建表的SQL（包含question字段）
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS detect_log (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -94,10 +97,35 @@ def init_mysql():
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='YOLO检测日志表';
         """
         with mysql_conn.cursor() as cursor:
-            cursor.execute(create_table_sql)  # 仅创建表，无额外ALTER语句
+            cursor.execute(create_table_sql)
+        
+        # 3.2 关键：自动检查并添加缺失的question字段（解决1054错误）
+        with mysql_conn.cursor() as cursor:
+            # 查询系统表，判断字段是否存在
+            check_column_sql = f"""
+            SELECT COLUMN_NAME 
+            FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = '{db_name}' 
+            AND TABLE_NAME = 'detect_log' 
+            AND COLUMN_NAME = 'question';
+            """
+            cursor.execute(check_column_sql)
+            column_exists = cursor.fetchone()
+            
+            # 字段不存在则添加
+            if not column_exists:
+                add_column_sql = """
+                ALTER TABLE detect_log 
+                ADD COLUMN question TEXT COMMENT '用户提问文本' 
+                AFTER ai_analysis;
+                """
+                cursor.execute(add_column_sql)
+                print("✅ 自动补全缺失的question字段")
+            else:
+                print("✅ question字段已存在，无需补全")
         
         mysql_conn.commit()
-        print("✅ MySQL检测日志表 'detect_log' 已创建/存在（包含question字段）")
+        print("✅ MySQL检测日志表 'detect_log' 初始化完成（包含question字段）")
         return True
     except pymysql.err.OperationalError as e:
         print(f"❌ MySQL连接失败：{str(e)}")
