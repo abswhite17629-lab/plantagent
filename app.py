@@ -14,6 +14,7 @@ import pymysql
 import redis
 from flask import Flask, request, jsonify, render_template
 from datetime import datetime
+import traceback
 
 # 导入配置文件（需确保config.py在同目录）
 import config
@@ -27,22 +28,31 @@ app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), 'templates'),  # 模板目录
             static_folder=os.path.join(os.path.dirname(__file__), 'static'))       # 静态文件目录
 
-# ===================== 目录初始化（容器环境必备） =====================
+# ===================== 目录初始化（容器环境必备，增加权限处理） =====================
 def init_folders():
-    """初始化上传/结果目录，避免容器内路径不存在报错"""
+    """初始化上传/结果目录，设置777权限避免容器内写入失败"""
     for folder in [config.UPLOAD_FOLDER, config.RESULT_FOLDER]:
         if not os.path.exists(folder):
             try:
-                os.makedirs(folder)
-                print(f"✅ 成功创建目录：{folder}")
+                os.makedirs(folder, mode=0o777)  # 设置全权限
+                os.chmod(folder, 0o777)
+                print(f"✅ 成功创建目录：{folder}（权限777）")
             except Exception as e:
                 print(f"⚠️ 创建目录失败（不影响核心功能）：{folder} - {str(e)}")
+        else:
+            # 确保已有目录权限正确
+            try:
+                os.chmod(folder, 0o777)
+                print(f"✅ 目录权限已设置为777：{folder}")
+            except Exception as e:
+                print(f"⚠️ 设置目录权限失败：{folder} - {str(e)}")
 
 # ===================== 文件格式校验 =====================
 def allowed_file(filename):
     """校验上传文件格式是否符合要求"""
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in config.ALLOWED_EXTENSIONS
+    if not filename or '.' not in filename:
+        return False
+    return filename.rsplit('.', 1)[1].lower() in config.ALLOWED_EXTENSIONS
 
 # ===================== MySQL模块（自动建库+存储，可选启用） =====================
 mysql_conn = None  # 全局MySQL连接对象
@@ -305,12 +315,13 @@ def call_doubao_ai(question, detections=None):
         # 场景2：无检测结果（纯文字提问）
         prompt = f"""
         你是一个友好的YOLO11智能助手，能回答用户的任意问题：
-        【用户提问】：{question or '打个招呼吧'}
+        【用户提问】：{question or '请上传图片进行目标检测，我能检测人、车、动物等常见目标～'}
         
         回答要求：
-        1. 精准、友好地回答用户的问题，不局限于检测功能（比如天气、闲聊、知识问答都可以）；
-        2. 语言口语化、自然，像聊天一样；
-        3. 控制在100字以内，简洁易懂。
+        1. 如果用户没明确提问，引导上传图片（比如“你可以上传一张图片，我帮你检测里面的目标哦～”）；
+        2. 如果用户有具体问题，精准、友好地回答，不局限于检测功能；
+        3. 语言口语化、自然，像聊天一样；
+        4. 控制在100字以内，简洁易懂。
         """
 
     try:
@@ -340,6 +351,7 @@ def call_doubao_ai(question, detections=None):
             return fallback_msg
     except Exception as e:
         print(f"❌ 豆包AI调用异常：{str(e)}")
+        print(traceback.format_exc())  # 打印详细异常栈
         return fallback_msg
 
 # ===================== YOLO11模型加载 =====================
@@ -350,8 +362,13 @@ try:
     # 从配置文件读取模型路径（官方yolo11n.pt，自动下载）
     model = YOLO(config.MODEL_PATH)
     print(f"✅ YOLO11模型加载成功（模型路径：{config.MODEL_PATH}）")
+    # 测试模型是否能正常推理（避免加载成功但推理失败）
+    print("✅ 测试模型推理能力...")
+    model.predict(source="ultralytics/assets/bus.jpg", verbose=False)
+    print("✅ 模型推理能力正常")
 except Exception as e:
     print(f"❌ YOLO11模型加载失败：{str(e)}")
+    print(traceback.format_exc())
 
 # ===================== Flask路由 =====================
 @app.route('/')
@@ -361,8 +378,16 @@ def index():
 
 @app.route('/detect', methods=['POST'])
 def detect():
-    """核心交互接口：支持纯文字提问、纯图片检测、文字+图片混合交互"""
+    """核心交互接口：支持纯文字提问、纯图片检测、文字+图片混合交互（增加全流程调试日志）"""
     try:
+        # ========== 调试日志：打印所有请求信息 ==========
+        print("\n======= 接收到新的detect请求 =======")
+        print(f"请求方法：{request.method}")
+        print(f"请求内容类型：{request.content_type}")
+        print(f"表单参数：{request.form}")
+        print(f"文件列表：{request.files}")
+        print(f"是否包含multipart：{'multipart/form-data' in request.content_type if request.content_type else False}")
+
         # 1. 获取请求参数
         user_question = request.form.get('question', '').strip()  # 用户文字提问
         image_file = request.files.get('image')  # 上传的图片
@@ -370,10 +395,17 @@ def detect():
         filename = None
         img_path = None
 
+        # ========== 调试日志：检查图片文件 ==========
+        if image_file:
+            print(f"接收到图片文件：文件名={image_file.filename}，文件类型={image_file.content_type}")
+        else:
+            print("未接收到图片文件（image_file为None）")
+
         # 2. 处理图片检测（如有图片）
         if image_file and image_file.filename != '':
             # 校验文件格式
             if not allowed_file(image_file.filename):
+                print(f"❌ 文件格式不支持：{image_file.filename}，允许的格式：{config.ALLOWED_EXTENSIONS}")
                 return jsonify({
                     "code": 400,
                     "msg": f"不支持的文件格式，仅允许：{','.join(config.ALLOWED_EXTENSIONS)}"
@@ -382,33 +414,50 @@ def detect():
             # 保存图片
             filename = os.path.basename(image_file.filename)
             img_path = os.path.join(config.UPLOAD_FOLDER, filename)
-            image_file.save(img_path)
-            print(f"✅ 上传图片已保存：{img_path}")
+            try:
+                image_file.save(img_path)
+                print(f"✅ 上传图片已保存：{img_path}，文件大小：{os.path.getsize(img_path)}字节")
+            except Exception as e:
+                print(f"❌ 保存图片失败：{str(e)}")
+                print(traceback.format_exc())
+                return jsonify({"code": 500, "msg": f"保存图片失败：{str(e)}"}), 500
 
             # 执行YOLO检测（模型未加载时返回错误）
             if not model:
+                print("❌ YOLO模型未加载，无法检测图片")
                 return jsonify({"code": 500, "msg": "YOLO11模型未加载，无法检测图片"}), 500
             
-            results = model(img_path)
-            # 解析检测结果
-            detections = []
-            for r in results:
-                for box in r.boxes:
-                    detections.append({
-                        "类别": model.names[int(box.cls)],
-                        "置信度": round(float(box.conf), 2),
-                        "坐标": [round(x, 2) for x in box.xyxy.tolist()[0]]  # [x1,y1,x2,y2]
-                    })
+            print(f"开始执行YOLO检测：图片路径={img_path}")
+            try:
+                results = model(img_path, verbose=False)  # 关闭模型冗余输出
+                # 解析检测结果
+                detections = []
+                for r in results:
+                    if hasattr(r, 'boxes') and r.boxes is not None:
+                        for box in r.boxes:
+                            detections.append({
+                                "类别": model.names[int(box.cls)],
+                                "置信度": round(float(box.conf), 2),
+                                "坐标": [round(x, 2) for x in box.xyxy.tolist()[0]]  # [x1,y1,x2,y2]
+                            })
+                print(f"✅ YOLO检测完成，检测到目标数量：{len(detections)}")
+                print(f"检测结果：{detections}")
+            except Exception as e:
+                print(f"❌ YOLO检测失败：{str(e)}")
+                print(traceback.format_exc())
+                return jsonify({"code": 500, "msg": f"检测图片失败：{str(e)}"}), 500
 
         # 3. 调用豆包AI生成回复（结合提问和检测结果）
+        print(f"调用豆包AI：提问={user_question}，检测结果={detections}")
         ai_analysis = call_doubao_ai(user_question, detections)
+        print(f"✅ AI回复：{ai_analysis}")
 
         # 4. 保存结果到MySQL和Redis（失败不影响返回）
         save_to_mysql(filename, user_question, detections, ai_analysis, img_path)
         save_to_redis(filename, user_question, detections, ai_analysis)
 
         # 5. 返回最终结果
-        return jsonify({
+        response_data = {
             "code": 200,
             "msg": "交互成功（已尝试保存到MySQL/Redis）" if (user_question or filename) else "请输入提问或上传图片",
             "检测结果": detections,  # 无图片时为None
@@ -416,11 +465,14 @@ def detect():
             "用户提问": user_question,
             "文件名称": filename,  # 无图片时为None
             "文件路径": img_path    # 无图片时为None
-        }), 200
+        }
+        print(f"✅ 返回响应：{response_data}")
+        return jsonify(response_data), 200
 
     except Exception as e:
         # 捕获所有异常，返回友好提示
         print(f"❌ 交互接口异常：{str(e)}")
+        print(traceback.format_exc())
         return jsonify({"code": 500, "msg": f"处理失败：{str(e)}"}), 500
 
 @app.route('/history', methods=['GET'])
@@ -464,6 +516,7 @@ def get_history():
         }), 200
     except Exception as e:
         print(f"❌ 历史查询接口异常：{str(e)}")
+        print(traceback.format_exc())
         return jsonify({"code": 500, "msg": f"查询历史记录失败：{str(e)}"}), 500
 
 # ===================== 程序入口 =====================
