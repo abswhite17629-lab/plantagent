@@ -213,6 +213,8 @@
             cursor: pointer;
             font-size: 18px;
             transition: color 0.2s;
+            display: flex;
+            align-items: center;
         }
         .tool-btn:hover {
             color: #3498db;
@@ -241,6 +243,10 @@
             font-size: 12px;
             color: #666;
             margin-left: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
         }
 
         /* 加载动画 */
@@ -352,6 +358,7 @@
                 <textarea id="textInput" placeholder="输入你的问题（可选），或直接上传图片检测..."></textarea>
                 <div class="input-tools">
                     <div class="tool-buttons">
+                        <!-- 核心修复1：label的for和input的id严格匹配，确保点击图标能触发文件选择 -->
                         <label for="imageFile" class="tool-btn" title="上传图片">
                             <i class="fas fa-image"></i>
                             <input type="file" id="imageFile" class="upload-input" accept="image/*">
@@ -390,25 +397,38 @@
             sendBtn.disabled = !(hasText || hasFile);
         }
 
+        // 核心修复2：强化文件选择事件处理，确保selectedFile正确赋值为File对象
         textInput.addEventListener('input', checkSendable);
         imageFile.addEventListener('change', function(e) {
-            if (e.target.files.length > 0) {
+            // 清空旧的文件引用
+            selectedFile = null;
+            fileInfo.textContent = '';
+            
+            // 验证是否有文件被选择
+            if (e.target.files && e.target.files.length > 0) {
                 selectedFile = e.target.files[0];
-                fileInfo.textContent = `已选择：${selectedFile.name} (${formatFileSize(selectedFile.size)})`;
-            } else {
-                selectedFile = null;
-                fileInfo.textContent = '';
+                // 验证文件类型（确保是图片）
+                if (selectedFile.type.startsWith('image/')) {
+                    fileInfo.textContent = `已选择：${selectedFile.name} (${formatFileSize(selectedFile.size)})`;
+                } else {
+                    alert("请选择图片格式的文件（jpg/png等）！");
+                    e.target.value = ''; // 清空非图片文件
+                }
             }
             checkSendable();
         });
 
-        // 发送按钮点击事件
+        // 核心修复3：发送按钮点击事件 - 确保FormData正确构造，传递文件流
         sendBtn.addEventListener('click', function() {
             const userText = textInput.value.trim();
             const hasText = userText.length > 0;
             const hasFile = selectedFile !== null;
 
-            if (!hasText && !hasFile) return;
+            // 双重验证：防止空提交
+            if (!hasText && !hasFile) {
+                alert("请输入问题或选择图片！");
+                return;
+            }
 
             // 1. 添加用户消息到对话区
             const userMessage = createUserMessage(userText, selectedFile);
@@ -419,33 +439,51 @@
             sendBtn.disabled = true;
             loading.style.display = "flex";
             textInput.value = '';
-            imageFile.value = '';
+            imageFile.value = ''; // 清空文件输入框
             selectedFile = null;
             fileInfo.textContent = '';
 
-            // 3. 构造请求参数（支持纯文字、纯图片、文字+图片）
+            // 3. 构造FormData（核心：确保image是File对象，而非字符串）
             const formData = new FormData();
-            if (hasText) formData.append('question', userText);
-            if (hasFile) formData.append('image', selectedFile);
+            if (hasText) {
+                formData.append('question', userText); // 文字提问参数
+            }
+            if (hasFile) {
+                formData.append('image', selectedFile); // 文件流参数（关键！）
+            }
 
-            // 4. 调用后端接口
+            // 4. 调用后端接口（添加超时和错误处理）
             fetch('/detect', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                timeout: 30000, // 30秒超时
+                headers: {
+                    // 不手动设置Content-Type，让浏览器自动生成multipart/form-data边界
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP错误：${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 loading.style.display = "none";
                 // 5. 添加AI回复到对话区
                 const aiMessage = createAIMessage(data, userText);
                 chatContainer.appendChild(aiMessage);
                 chatContainer.scrollTop = chatContainer.scrollHeight;
+                // 恢复发送按钮状态
+                checkSendable();
             })
             .catch(error => {
                 loading.style.display = "none";
                 const errorMsg = createErrorMsg(error);
                 chatContainer.appendChild(errorMsg);
                 chatContainer.scrollTop = chatContainer.scrollHeight;
+                // 恢复发送按钮状态
+                checkSendable();
             });
         });
 
@@ -469,12 +507,16 @@
                 contentDiv.appendChild(textDiv);
             }
             
-            // 图片内容
+            // 图片内容（添加预览）
             if (file) {
                 const imgPreview = document.createElement('img');
                 imgPreview.className = "message-image";
                 imgPreview.src = URL.createObjectURL(file);
                 imgPreview.alt = file.name;
+                // 预览图片加载错误处理
+                imgPreview.onerror = function() {
+                    imgPreview.src = "https://via.placeholder.com/200x150?text=图片预览失败";
+                };
                 contentDiv.appendChild(imgPreview);
             }
             
@@ -498,7 +540,7 @@
             // 状态提示
             const statusDiv = document.createElement('div');
             statusDiv.style.fontWeight = "500";
-            statusDiv.textContent = data.msg;
+            statusDiv.textContent = data.msg || "处理完成";
             
             // 核心回复内容
             const resultDiv = document.createElement('div');
@@ -506,10 +548,10 @@
             
             if (data.code === 200) {
                 // 有检测结果（上传了图片）
-                if (data['检测结果'] && data['检测结果'].length > 0) {
+                if (data['检测结果'] && Array.isArray(data['检测结果']) && data['检测结果'].length > 0) {
                     // 文件信息
                     const fileInfoDiv = document.createElement('div');
-                    fileInfoDiv.textContent = `文件：${data['文件名称']}`;
+                    fileInfoDiv.textContent = `文件：${data['文件名称'] || '未知文件'}`;
                     
                     // 检测目标列表
                     const targetDiv = document.createElement('div');
@@ -528,22 +570,22 @@
                     // AI分析（结合用户提问）
                     const aiAnalysisDiv = document.createElement('div');
                     aiAnalysisDiv.className = "ai-analysis";
-                    aiAnalysisDiv.innerHTML = `<i class="fas fa-lightbulb"></i> ${data['豆包AI分析']}`;
+                    aiAnalysisDiv.innerHTML = `<i class="fas fa-lightbulb"></i> ${data['豆包AI分析'] || '暂无AI分析结果'}`;
                     
                     resultDiv.appendChild(fileInfoDiv);
                     resultDiv.appendChild(targetDiv);
                     resultDiv.appendChild(aiAnalysisDiv);
                 } else {
-                    // 纯文字提问（无图片）
+                    // 纯文字提问（无图片）或无检测结果
                     const textReplyDiv = document.createElement('div');
                     textReplyDiv.style.lineHeight = "1.8";
-                    textReplyDiv.textContent = data['豆包AI分析'];
+                    textReplyDiv.textContent = data['豆包AI分析'] || "未检测到有效目标，请换一张包含人/车/物的图片重试。";
                     resultDiv.appendChild(textReplyDiv);
                 }
             } else {
                 // 错误结果
                 resultDiv.style.color = "#e74c3c";
-                resultDiv.textContent = `错误：${data.msg}`;
+                resultDiv.textContent = `错误：${data.msg || '未知错误'}`;
             }
             
             contentDiv.appendChild(statusDiv);
@@ -567,7 +609,7 @@
             contentDiv.className = "message-content";
             contentDiv.style.backgroundColor = "#ffebee";
             contentDiv.style.color = "#e74c3c";
-            contentDiv.textContent = `处理失败：${error.message || "网络异常，请重试"}`;
+            contentDiv.textContent = `处理失败：${error.message || "网络异常/后端服务未响应，请重试"}`;
             
             messageDiv.appendChild(avatarDiv);
             messageDiv.appendChild(contentDiv);
@@ -603,6 +645,13 @@
                 </div>
             `;
         }
+
+        // 额外：监听回车键发送（优化体验）
+        textInput.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                sendBtn.click();
+            }
+        });
     </script>
 </body>
 </html>
