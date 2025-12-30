@@ -1,210 +1,542 @@
-@app.route('/')
-def index():
-    """主页：美化后的图片上传表单"""
-    return """
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>YOLO11 智能目标检测平台</title>
-        <style>
-            /* 全局样式重置 */
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            }
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO11 智能检测助手</title>
+    <style>
+        /* 全局样式：仿豆包/通义千问风格 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+        }
+        body {
+            background-color: #f5f7fa;
+            color: #333;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
 
-            /* 页面背景 */
-            body {
-                background-color: #f5f7fa;
-                min-height: 100vh;
-                padding: 20px 0;
-            }
+        /* 左侧侧边栏：历史记录/功能菜单 */
+        .sidebar {
+            width: 260px;
+            background-color: #fff;
+            border-right: 1px solid #e5e7eb;
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-title {
+            padding: 0 20px;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        .sidebar-menu {
+            list-style: none;
+            flex: 1;
+        }
+        .sidebar-menu li {
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .sidebar-menu li:hover {
+            background-color: #f5f7fa;
+        }
+        .sidebar-menu li a {
+            text-decoration: none;
+            color: #333;
+            display: flex;
+            align-items: center;
+        }
+        .sidebar-menu li i {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+        .sidebar-footer {
+            padding: 0 20px;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 15px;
+            font-size: 12px;
+            color: #999;
+        }
 
-            /* 主容器：居中、卡片式 */
-            .container {
-                max-width: 700px;
-                margin: 0 auto;
-                padding: 0 20px;
-            }
+        /* 中间主内容区：对话交互 */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .header {
+            padding: 15px 20px;
+            background-color: #fff;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .header-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        .header-desc {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
 
-            /* 头部标题区 */
-            .header {
-                text-align: center;
-                margin-bottom: 30px;
-            }
+        /* 对话列表区 */
+        .chat-container {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background-color: #f5f7fa;
+        }
+        .chat-message {
+            margin-bottom: 20px;
+            max-width: 80%;
+        }
+        .user-message {
+            margin-left: auto;
+        }
+        .ai-message {
+            margin-right: auto;
+        }
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: #3498db;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            margin-bottom: 8px;
+        }
+        .user-message .message-avatar {
+            background-color: #2ecc71;
+        }
+        .message-content {
+            padding: 12px 18px;
+            border-radius: 12px;
+            background-color: #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .user-message .message-content {
+            background-color: #3498db;
+            color: #fff;
+        }
+        .message-image {
+            max-width: 200px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .message-result {
+            margin-top: 10px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .result-item {
+            margin-top: 5px;
+            padding: 8px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        .ai-analysis {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e8f4fd;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #2c3e50;
+        }
 
-            .header h1 {
-                color: #1d2129;
-                font-size: 2.2rem;
-                font-weight: 600;
-                margin-bottom: 8px;
-            }
+        /* 底部输入区：上传图片+发送 */
+        .input-container {
+            padding: 20px;
+            background-color: #fff;
+            border-top: 1px solid #e5e7eb;
+        }
+        .upload-box {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            border: 2px dashed #e5e7eb;
+            border-radius: 12px;
+            transition: border-color 0.2s;
+        }
+        .upload-box:hover {
+            border-color: #3498db;
+        }
+        .upload-input {
+            display: none;
+        }
+        .upload-label {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            color: #3498db;
+            font-weight: 500;
+        }
+        .upload-label i {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+        .file-name {
+            flex: 1;
+            color: #666;
+            font-size: 14px;
+        }
+        .send-btn {
+            padding: 10px 24px;
+            background-color: #3498db;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+        .send-btn:hover {
+            background-color: #2980b9;
+        }
+        .send-btn:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
 
-            .header p {
-                color: #666;
-                font-size: 1rem;
-                line-height: 1.5;
-            }
+        /* 加载动画 */
+        .loading {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .loading-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #3498db;
+            animation: bounce 1s infinite alternate;
+        }
+        .loading-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        .loading-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        @keyframes bounce {
+            from { transform: translateY(0); }
+            to { transform: translateY(-8px); }
+        }
 
-            /* 卡片容器：阴影、圆角 */
-            .card {
-                background: #fff;
-                border-radius: 12px;
-                box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.08);
-                padding: 30px;
-                margin-bottom: 20px;
-                transition: box-shadow 0.3s ease;
-            }
+        /* 滚动条样式优化 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: #ccc;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-track {
+            background-color: #f5f7fa;
+        }
+    </style>
+    <!-- 引入图标库（替代Font Awesome） -->
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- 左侧侧边栏 -->
+    <div class="sidebar">
+        <div class="sidebar-title">YOLO11 检测助手</div>
+        <ul class="sidebar-menu">
+            <li>
+                <a href="/">
+                    <i class="fas fa-home"></i>
+                    <span>首页</span>
+                </a>
+            </li>
+            <li>
+                <a href="/history">
+                    <i class="fas fa-history"></i>
+                    <span>检测历史</span>
+                </a>
+            </li>
+            <li>
+                <a href="javascript:;" onclick="clearChat()">
+                    <i class="fas fa-trash"></i>
+                    <span>清空对话</span>
+                </a>
+            </li>
+            <li>
+                <a href="javascript:;">
+                    <i class="fas fa-cog"></i>
+                    <span>设置</span>
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <p>YOLO11 容器版 | 集成豆包AI分析</p>
+            <p>MySQL/Redis 双存储</p>
+        </div>
+    </div>
 
-            .card:hover {
-                box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.1);
-            }
-
-            /* 表单样式 */
-            .upload-form {
-                display: flex;
-                flex-direction: column;
-                gap: 20px;
-            }
-
-            /* 文件上传按钮美化 */
-            .file-input-wrapper {
-                position: relative;
-                display: inline-block;
-                width: 100%;
-                cursor: pointer;
-            }
-
-            .file-input {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                opacity: 0;
-                cursor: pointer;
-                z-index: 2;
-            }
-
-            .file-input-label {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 16px;
-                border: 2px dashed #dcdfe6;
-                border-radius: 8px;
-                color: #666;
-                text-align: center;
-                transition: all 0.3s ease;
-                z-index: 1;
-            }
-
-            .file-input-label:hover {
-                border-color: #4096ff;
-                color: #4096ff;
-            }
-
-            .file-input-label i {
-                font-size: 2rem;
-                margin-bottom: 8px;
-                display: block;
-            }
-
-            /* 提交按钮 */
-            .submit-btn {
-                background-color: #4096ff;
-                color: #fff;
-                border: none;
-                border-radius: 8px;
-                padding: 14px 0;
-                font-size: 1rem;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            }
-
-            .submit-btn:hover {
-                background-color: #337ecc;
-                transform: translateY(-2px);
-            }
-
-            .submit-btn:active {
-                transform: translateY(0);
-            }
-
-            /* 历史记录链接 */
-            .history-link {
-                text-align: center;
-                margin-top: 20px;
-            }
-
-            .history-link a {
-                color: #4096ff;
-                text-decoration: none;
-                font-size: 0.95rem;
-                transition: color 0.3s ease;
-            }
-
-            .history-link a:hover {
-                color: #337ecc;
-                text-decoration: underline;
-            }
-
-            /* 响应式适配：手机端 */
-            @media (max-width: 576px) {
-                .header h1 {
-                    font-size: 1.8rem;
-                }
-
-                .card {
-                    padding: 20px;
-                }
-
-                .file-input-label {
-                    padding: 12px;
-                }
-            }
-        </style>
-        <!-- 引入图标（可选，提升视觉效果） -->
-        <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    </head>
-    <body>
-        <div class="container">
-            <!-- 头部标题 -->
-            <div class="header">
-                <h1>YOLO11 智能目标检测平台</h1>
-                <p>集成豆包AI分析 · MySQL存储 · Redis缓存 | 支持图片快速检测</p>
+    <!-- 中间主内容区 -->
+    <div class="main-content">
+        <div class="header">
+            <div>
+                <div class="header-title">YOLO11 智能目标检测</div>
+                <div class="header-desc">上传图片，一键检测目标（人/车/物等），AI自动分析结果</div>
             </div>
-
-            <!-- 上传卡片 -->
-            <div class="card">
-                <form action="/detect" method="post" enctype="multipart/form-data" class="upload-form">
-                    <!-- 文件上传区域 -->
-                    <div class="file-input-wrapper">
-                        <input type="file" name="image" accept="image/*" required class="file-input" id="image-upload">
-                        <label for="image-upload" class="file-input-label">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                            <span>点击或拖拽文件至此处上传</span>
-                            <small>支持格式：png、jpg、jpeg、bmp</small>
-                        </label>
-                    </div>
-
-                    <!-- 提交按钮 -->
-                    <button type="submit" class="submit-btn">
-                        <i class="fas fa-search"></i> 开始检测
-                    </button>
-                </form>
-            </div>
-
-            <!-- 历史记录链接 -->
-            <div class="history-link">
-                <a href="/history"><i class="fas fa-history"></i> 查看检测历史记录</a>
+            <div>
+                <i class="fas fa-question-circle" style="color: #666; cursor: pointer;"></i>
             </div>
         </div>
-    </body>
-    </html>
-    """
+
+        <!-- 对话列表 -->
+        <div class="chat-container" id="chatContainer">
+            <!-- 欢迎消息 -->
+            <div class="chat-message ai-message">
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    你好！我是YOLO11智能检测助手，上传图片即可检测目标（支持人、车、物等），并生成AI分析结果。
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部输入区 -->
+        <div class="input-container">
+            <div class="upload-box">
+                <input type="file" id="imageFile" class="upload-input" accept="image/*">
+                <label for="imageFile" class="upload-label" id="uploadLabel">
+                    <i class="fas fa-upload"></i>
+                    <span>选择图片</span>
+                </label>
+                <div class="file-name" id="fileName">未选择文件</div>
+                <button class="send-btn" id="sendBtn" disabled>开始检测</button>
+            </div>
+            <div class="loading" id="loading">
+                <div class="loading-dot"></div>
+                <div class="loading-dot"></div>
+                <div class="loading-dot"></div>
+                <span>检测中，请稍候...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let selectedFile = null;
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            const imageFile = document.getElementById('imageFile');
+            const fileName = document.getElementById('fileName');
+            const sendBtn = document.getElementById('sendBtn');
+            const uploadLabel = document.getElementById('uploadLabel');
+            const chatContainer = document.getElementById('chatContainer');
+            const loading = document.getElementById('loading');
+
+            // 选择文件事件
+            imageFile.addEventListener('change', function(e) {
+                if (e.target.files.length > 0) {
+                    selectedFile = e.target.files[0];
+                    fileName.textContent = selectedFile.name;
+                    sendBtn.disabled = false;
+                } else {
+                    selectedFile = null;
+                    fileName.textContent = "未选择文件";
+                    sendBtn.disabled = true;
+                }
+            });
+
+            // 发送按钮点击事件
+            sendBtn.addEventListener('click', function() {
+                if (!selectedFile) return;
+
+                // 1. 添加用户消息（上传的图片）
+                const userMessage = createUserMessage(selectedFile);
+                chatContainer.appendChild(userMessage);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                // 2. 显示加载动画
+                sendBtn.disabled = true;
+                loading.style.display = "flex";
+                imageFile.value = ""; // 清空文件选择
+                fileName.textContent = "未选择文件";
+
+                // 3. 构造FormData，调用检测接口
+                const formData = new FormData();
+                formData.append('image', selectedFile);
+
+                fetch('/detect', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // 4. 隐藏加载动画
+                    loading.style.display = "none";
+
+                    // 5. 添加AI回复消息
+                    const aiMessage = createAIMessage(data);
+                    chatContainer.appendChild(aiMessage);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    // 6. 重置选择状态
+                    selectedFile = null;
+                })
+                .catch(error => {
+                    // 异常处理
+                    loading.style.display = "none";
+                    const errorMessage = createErrorMsg(error);
+                    chatContainer.appendChild(errorMessage);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                });
+            });
+        });
+
+        // 创建用户消息元素（上传的图片）
+        function createUserMessage(file) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = "chat-message user-message";
+            
+            const avatarDiv = document.createElement('div');
+            avatarDiv.className = "message-avatar";
+            avatarDiv.textContent = "👤";
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = "message-content";
+            
+            // 图片预览
+            const imgPreview = document.createElement('img');
+            imgPreview.className = "message-image";
+            imgPreview.src = URL.createObjectURL(file);
+            imgPreview.alt = file.name;
+            
+            const fileNameDiv = document.createElement('div');
+            fileNameDiv.style.marginTop = "8px";
+            fileNameDiv.style.fontSize = "12px";
+            fileNameDiv.textContent = `上传文件：${file.name} (${formatFileSize(file.size)})`;
+            
+            contentDiv.appendChild(imgPreview);
+            contentDiv.appendChild(fileNameDiv);
+            messageDiv.appendChild(avatarDiv);
+            messageDiv.appendChild(contentDiv);
+            
+            return messageDiv;
+        }
+
+        // 创建AI回复消息元素（检测结果）
+        function createAIMessage(data) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = "chat-message ai-message";
+            
+            const avatarDiv = document.createElement('div');
+            avatarDiv.className = "message-avatar";
+            avatarDiv.textContent = "🤖";
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = "message-content";
+            
+            // 状态提示
+            const statusDiv = document.createElement('div');
+            statusDiv.style.fontWeight = "500";
+            statusDiv.textContent = data.msg;
+            
+            // 检测结果
+            const resultDiv = document.createElement('div');
+            resultDiv.className = "message-result";
+            
+            if (data.code === 200) {
+                // 成功结果
+                const fileInfoDiv = document.createElement('div');
+                fileInfoDiv.textContent = `文件名：${data['文件名称']}`;
+                
+                const resultListDiv = document.createElement('div');
+                resultListDiv.style.marginTop = "8px";
+                resultListDiv.textContent = "检测到的目标：";
+                
+                data['检测结果'].forEach((item, index) => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = "result-item";
+                    itemDiv.textContent = `${index+1}. 类型：${item.类别} | 置信度：${item.置信度} | 坐标：${item.坐标.join(', ')}`;
+                    resultListDiv.appendChild(itemDiv);
+                });
+                
+                // AI分析
+                const aiAnalysisDiv = document.createElement('div');
+                aiAnalysisDiv.className = "ai-analysis";
+                aiAnalysisDiv.innerHTML = `<i class="fas fa-lightbulb"></i> 豆包AI分析：${data['豆包AI分析']}`;
+                
+                resultDiv.appendChild(fileInfoDiv);
+                resultDiv.appendChild(resultListDiv);
+                resultDiv.appendChild(aiAnalysisDiv);
+            } else {
+                // 失败结果
+                resultDiv.style.color = "#e74c3c";
+                resultDiv.textContent = `错误：${data.msg}`;
+            }
+            
+            contentDiv.appendChild(statusDiv);
+            contentDiv.appendChild(resultDiv);
+            messageDiv.appendChild(avatarDiv);
+            messageDiv.appendChild(contentDiv);
+            
+            return messageDiv;
+        }
+
+        // 创建错误消息元素
+        function createErrorMsg(error) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = "chat-message ai-message";
+            
+            const avatarDiv = document.createElement('div');
+            messageDiv.className = "message-avatar";
+            avatarDiv.textContent = "❌";
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = "message-content";
+            contentDiv.style.backgroundColor = "#ffebee";
+            contentDiv.style.color = "#e74c3c";
+            contentDiv.textContent = `检测失败：${error.message || "网络异常，请重试"}`;
+            
+            messageDiv.appendChild(avatarDiv);
+            messageDiv.appendChild(contentDiv);
+            
+            return messageDiv;
+        }
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + " B";
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+            else return (bytes / 1048576).toFixed(1) + " MB";
+        }
+
+        // 清空对话
+        function clearChat() {
+            const chatContainer = document.getElementById('chatContainer');
+            // 保留欢迎消息
+            chatContainer.innerHTML = `
+                <div class="chat-message ai-message">
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        你好！我是YOLO11智能检测助手，上传图片即可检测目标（支持人、车、物等），并生成AI分析结果。
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

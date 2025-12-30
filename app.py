@@ -11,7 +11,7 @@ import torch
 import requests
 import pymysql
 import redis
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template  # 新增：导入render_template
 from datetime import datetime
 
 # 导入配置文件（需确保config.py在同目录）
@@ -21,8 +21,10 @@ import config
 # 强制禁用GPU，避免容器/无GPU环境兼容问题
 torch.cuda.is_available = lambda: False
 
-# 初始化Flask应用
-app = Flask(__name__)
+# 初始化Flask应用（指定模板/静态文件目录，适配你的项目结构）
+app = Flask(__name__, 
+            template_folder=os.path.join(os.path.dirname(__file__), 'templates'),  # 模板目录
+            static_folder=os.path.join(os.path.dirname(__file__), 'static'))       # 静态文件目录
 
 # ===================== 目录初始化（容器环境必备） =====================
 def init_folders():
@@ -228,35 +230,8 @@ except Exception as e:
 # ===================== Flask路由 =====================
 @app.route('/')
 def index():
-    """主页：提供图片上传表单"""
-    return """
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="UTF-8">
-        <title>YOLO11检测服务（容器版）</title>
-        <style>
-            body {max-width: 800px; margin: 20px auto; padding: 0 20px; font-family: Arial;}
-            h1 {color: #2c3e50;}
-            .form-box {margin-top: 20px; padding: 20px; border: 1px solid #eee; border-radius: 8px;}
-            input[type=file] {margin: 10px 0; padding: 8px;}
-            button {padding: 8px 20px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;}
-            button:hover {background: #2980b9;}
-        </style>
-    </head>
-    <body>
-        <h1>YOLO11目标检测服务</h1>
-        <p>集成豆包AI分析 + MySQL存储 + Redis缓存（容器版）</p>
-        <div class="form-box">
-            <form action="/detect" method="post" enctype="multipart/form-data">
-                <input type="file" name="image" accept="image/*" required>
-                <button type="submit">上传图片并检测</button>
-            </form>
-        </div>
-        <p><a href="/history">查看检测历史记录</a></p>
-    </body>
-    </html>
-    """
+    """主页：渲染大模型风格的对话式检测界面（替换硬编码HTML）"""
+    return render_template('index.html')  # 核心改动：渲染templates/index.html
 
 @app.route('/detect', methods=['POST'])
 def detect():
@@ -307,14 +282,15 @@ def detect():
         save_to_mysql(filename, detections, ai_analysis, img_path)
         save_to_redis(filename, detections, ai_analysis)
 
-        # 8. 返回最终结果
+        # 8. 返回最终结果（新增图片预览路径，适配前端展示）
         return jsonify({
             "code": 200,
             "msg": "检测成功（已尝试保存到MySQL/Redis）",
             "检测结果": detections,
             "豆包AI分析": ai_analysis,
             "文件名称": filename,
-            "文件路径": img_path
+            "文件路径": img_path,
+            "图片预览路径": f"/static/uploads/{filename}"  # 前端预览图片用
         }), 200
 
     except Exception as e:
