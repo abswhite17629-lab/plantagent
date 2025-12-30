@@ -49,7 +49,7 @@ mysql_conn = None  # 全局MySQL连接对象
 
 def init_mysql():
     """
-    初始化MySQL：自动创建数据库+表，且自动补全缺失的question字段
+    初始化MySQL：简化逻辑，修复SQL语法错误，包含question字段
     """
     global mysql_conn
     try:
@@ -76,33 +76,25 @@ def init_mysql():
         temp_conn.close()
         print(f"✅ MySQL数据库 '{db_name}' 已创建/存在")
 
-        # 3. 连接数据库并创建表（包含question字段）
+        # 3. 连接数据库并创建表（包含question字段，删除多余ALTER语句）
         mysql_config_full = config.MYSQL_CONFIG.copy()
         mysql_config_full["connect_timeout"] = 10
         mysql_conn = pymysql.connect(**mysql_config_full)
         
-        # 核心：创建表的SQL（直接包含question字段）
+        # 核心：创建表的SQL（包含question字段，无语法错误）
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS detect_log (
             id INT AUTO_INCREMENT PRIMARY KEY,
             filename VARCHAR(255) NOT NULL COMMENT '上传文件名',
             detections TEXT NOT NULL COMMENT '检测结果JSON字符串',
             ai_analysis TEXT COMMENT '豆包AI分析结果',
-            question TEXT COMMENT '用户提问文本',  # 新增的字段
+            question TEXT COMMENT '用户提问文本',
             create_time DATETIME NOT NULL COMMENT '检测时间',
             file_path VARCHAR(255) COMMENT '文件存储路径'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='YOLO检测日志表';
         """
         with mysql_conn.cursor() as cursor:
-            cursor.execute(create_table_sql)
-            
-            # 容错逻辑：如果已有表但缺question字段，自动添加（关键！）
-            add_column_sql = """
-            ALTER TABLE detect_log 
-            ADD COLUMN IF NOT EXISTS question TEXT COMMENT '用户提问文本' 
-            AFTER ai_analysis;
-            """
-            cursor.execute(add_column_sql)
+            cursor.execute(create_table_sql)  # 仅创建表，无额外ALTER语句
         
         mysql_conn.commit()
         print("✅ MySQL检测日志表 'detect_log' 已创建/存在（包含question字段）")
@@ -177,7 +169,7 @@ def save_to_redis(filename, question, detections, ai_analysis, expire=3600):
             "filename": filename or ""
         }
         # 保存到Redis并设置过期时间
-        redis_client.hmset(cache_key, cache_value)
+        redis_client.hset(cache_key, mapping=cache_value)
         redis_client.expire(cache_key, expire)
         print(f"✅ 交互记录已缓存到Redis：{cache_key}（过期时间{expire}秒）")
         return True
