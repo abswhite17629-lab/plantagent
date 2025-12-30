@@ -49,25 +49,24 @@ mysql_conn = None  # 全局MySQL连接对象
 
 def init_mysql():
     """
-    初始化MySQL：
-    1. 先连接服务器创建数据库（不存在则创建）
-    2. 再连接数据库创建检测日志表
-    3. 失败仅告警，不影响核心功能
+    初始化MySQL：自动创建数据库+表，且自动补全缺失的question字段
     """
     global mysql_conn
     try:
-        # 1. 校验MySQL基础配置（host/user/password）
+        # 1. 基础配置（补充端口+超时）
         basic_config = {
             "host": config.MYSQL_CONFIG.get("host"),
+            "port": config.MYSQL_CONFIG.get("port", 3306),
             "user": config.MYSQL_CONFIG.get("user"),
             "password": config.MYSQL_CONFIG.get("password"),
-            "charset": config.MYSQL_CONFIG.get("charset", "utf8mb4")
+            "charset": config.MYSQL_CONFIG.get("charset", "utf8mb4"),
+            "connect_timeout": 10
         }
-        if not all([basic_config["host"], basic_config["user"]]):
-            print("⚠️ MySQL基础配置不完整（host/user缺失），跳过MySQL初始化")
+        if not all([basic_config["host"], basic_config["user"], basic_config["port"]]):
+            print("⚠️ MySQL基础配置不完整，跳过MySQL初始化")
             return False
         
-        # 2. 连接MySQL服务器（不指定数据库），创建yolo_detect数据库
+        # 2. 创建数据库（如果不存在）
         temp_conn = pymysql.connect(**basic_config)
         db_name = config.MYSQL_CONFIG["database"]
         create_db_sql = f"CREATE DATABASE IF NOT EXISTS {db_name} DEFAULT CHARACTER SET utf8mb4;"
@@ -77,24 +76,41 @@ def init_mysql():
         temp_conn.close()
         print(f"✅ MySQL数据库 '{db_name}' 已创建/存在")
 
-        # 3. 连接新建的数据库，创建检测日志表
-        mysql_conn = pymysql.connect(**config.MYSQL_CONFIG)
+        # 3. 连接数据库并创建表（包含question字段）
+        mysql_config_full = config.MYSQL_CONFIG.copy()
+        mysql_config_full["connect_timeout"] = 10
+        mysql_conn = pymysql.connect(**mysql_config_full)
+        
+        # 核心：创建表的SQL（直接包含question字段）
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS detect_log (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            filename VARCHAR(255) NULL COMMENT '上传文件名（无图片时为NULL）',
-            question TEXT NULL COMMENT '用户提问',
-            detections TEXT NULL COMMENT '检测结果JSON字符串（无图片时为NULL）',
-            ai_analysis TEXT NOT NULL COMMENT '豆包AI分析结果',
-            create_time DATETIME NOT NULL COMMENT '交互时间',
-            file_path VARCHAR(255) NULL COMMENT '文件存储路径（无图片时为NULL）'
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='YOLO检测/问答日志表';
+            filename VARCHAR(255) NOT NULL COMMENT '上传文件名',
+            detections TEXT NOT NULL COMMENT '检测结果JSON字符串',
+            ai_analysis TEXT COMMENT '豆包AI分析结果',
+            question TEXT COMMENT '用户提问文本',  # 新增的字段
+            create_time DATETIME NOT NULL COMMENT '检测时间',
+            file_path VARCHAR(255) COMMENT '文件存储路径'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='YOLO检测日志表';
         """
         with mysql_conn.cursor() as cursor:
             cursor.execute(create_table_sql)
+            
+            # 容错逻辑：如果已有表但缺question字段，自动添加（关键！）
+            add_column_sql = """
+            ALTER TABLE detect_log 
+            ADD COLUMN IF NOT EXISTS question TEXT COMMENT '用户提问文本' 
+            AFTER ai_analysis;
+            """
+            cursor.execute(add_column_sql)
+        
         mysql_conn.commit()
-        print("✅ MySQL检测日志表 'detect_log' 已创建/存在")
+        print("✅ MySQL检测日志表 'detect_log' 已创建/存在（包含question字段）")
         return True
+    except pymysql.err.OperationalError as e:
+        print(f"❌ MySQL连接失败：{str(e)}")
+        mysql_conn = None
+        return False
     except Exception as e:
         print(f"⚠️ MySQL初始化失败（不影响核心功能）：{str(e)}")
         mysql_conn = None
