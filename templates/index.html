@@ -138,6 +138,15 @@
             max-width: 200px;
             border-radius: 8px;
             margin-top: 10px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .message-image:hover {
+            transform: scale(1.05);
+        }
+        .message-text {
+            margin-bottom: 10px;
+            line-height: 1.6;
         }
         .message-result {
             margin-top: 10px;
@@ -159,45 +168,60 @@
             color: #2c3e50;
         }
 
-        /* 底部输入区：上传图片+发送 */
+        /* 底部输入区：文字输入+图片上传+发送 */
         .input-container {
             padding: 20px;
             background-color: #fff;
             border-top: 1px solid #e5e7eb;
-        }
-        .upload-box {
             display: flex;
-            align-items: center;
+            flex-direction: column;
             gap: 15px;
-            padding: 15px;
-            border: 2px dashed #e5e7eb;
+        }
+        .text-input-box {
+            position: relative;
+        }
+        textarea {
+            width: 100%;
+            padding: 15px 20px;
+            border: 1px solid #e5e7eb;
             border-radius: 12px;
+            resize: none;
+            font-size: 14px;
+            line-height: 1.6;
+            min-height: 80px;
+            max-height: 200px;
             transition: border-color 0.2s;
         }
-        .upload-box:hover {
+        textarea:focus {
+            outline: none;
             border-color: #3498db;
+        }
+        .input-tools {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 10px;
+        }
+        .tool-buttons {
+            display: flex;
+            gap: 15px;
+        }
+        .tool-btn {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 18px;
+            transition: color 0.2s;
+        }
+        .tool-btn:hover {
+            color: #3498db;
         }
         .upload-input {
             display: none;
         }
-        .upload-label {
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            color: #3498db;
-            font-weight: 500;
-        }
-        .upload-label i {
-            font-size: 20px;
-            margin-right: 8px;
-        }
-        .file-name {
-            flex: 1;
-            color: #666;
-            font-size: 14px;
-        }
         .send-btn {
-            padding: 10px 24px;
+            padding: 8px 24px;
             background-color: #3498db;
             color: #fff;
             border: none;
@@ -213,6 +237,11 @@
             background-color: #95a5a6;
             cursor: not-allowed;
         }
+        .file-info {
+            font-size: 12px;
+            color: #666;
+            margin-left: 10px;
+        }
 
         /* 加载动画 */
         .loading {
@@ -220,6 +249,7 @@
             align-items: center;
             gap: 8px;
             margin-top: 10px;
+            justify-content: center;
         }
         .loading-dot {
             width: 8px;
@@ -252,7 +282,7 @@
             background-color: #f5f7fa;
         }
     </style>
-    <!-- 引入图标库（替代Font Awesome） -->
+    <!-- 引入图标库 -->
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -287,7 +317,7 @@
         </ul>
         <div class="sidebar-footer">
             <p>YOLO11 容器版 | 集成豆包AI分析</p>
-            <p>MySQL/Redis 双存储</p>
+            <p>支持文字提问+图片检测</p>
         </div>
     </div>
 
@@ -295,8 +325,8 @@
     <div class="main-content">
         <div class="header">
             <div>
-                <div class="header-title">YOLO11 智能目标检测</div>
-                <div class="header-desc">上传图片，一键检测目标（人/车/物等），AI自动分析结果</div>
+                <div class="header-title">YOLO11 智能目标检测助手</div>
+                <div class="header-desc">支持文字提问、图片检测，AI自动分析结果（可问“检测到多少人？”“这是什么目标？”）</div>
             </div>
             <div>
                 <i class="fas fa-question-circle" style="color: #666; cursor: pointer;"></i>
@@ -309,27 +339,36 @@
             <div class="chat-message ai-message">
                 <div class="message-avatar">🤖</div>
                 <div class="message-content">
-                    你好！我是YOLO11智能检测助手，上传图片即可检测目标（支持人、车、物等），并生成AI分析结果。
+                    你好！我是YOLO11智能检测助手，支持两种交互方式：
+                    <br>1. 直接上传图片，我会自动检测目标（人/车/物等）；
+                    <br>2. 打字提问（比如“检测到多少人？”“这个目标是什么？”），可结合图片一起发送。
                 </div>
             </div>
         </div>
 
-        <!-- 底部输入区 -->
+        <!-- 底部输入区：新增文字输入框 -->
         <div class="input-container">
-            <div class="upload-box">
-                <input type="file" id="imageFile" class="upload-input" accept="image/*">
-                <label for="imageFile" class="upload-label" id="uploadLabel">
-                    <i class="fas fa-upload"></i>
-                    <span>选择图片</span>
-                </label>
-                <div class="file-name" id="fileName">未选择文件</div>
-                <button class="send-btn" id="sendBtn" disabled>开始检测</button>
+            <div class="text-input-box">
+                <textarea id="textInput" placeholder="输入你的问题（可选），或直接上传图片检测..."></textarea>
+                <div class="input-tools">
+                    <div class="tool-buttons">
+                        <label for="imageFile" class="tool-btn" title="上传图片">
+                            <i class="fas fa-image"></i>
+                            <input type="file" id="imageFile" class="upload-input" accept="image/*">
+                        </label>
+                        <span class="tool-btn" title="清空输入" onclick="clearInput()">
+                            <i class="fas fa-times"></i>
+                        </span>
+                        <span class="file-info" id="fileInfo"></span>
+                    </div>
+                    <button class="send-btn" id="sendBtn" disabled>发送</button>
+                </div>
             </div>
             <div class="loading" id="loading">
                 <div class="loading-dot"></div>
                 <div class="loading-dot"></div>
                 <div class="loading-dot"></div>
-                <span>检测中，请稍候...</span>
+                <span>正在处理，请稍候...</span>
             </div>
         </div>
     </div>
@@ -337,77 +376,81 @@
     <script>
         // 全局变量
         let selectedFile = null;
-        
-        // 初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            const imageFile = document.getElementById('imageFile');
-            const fileName = document.getElementById('fileName');
-            const sendBtn = document.getElementById('sendBtn');
-            const uploadLabel = document.getElementById('uploadLabel');
-            const chatContainer = document.getElementById('chatContainer');
-            const loading = document.getElementById('loading');
+        const textInput = document.getElementById('textInput');
+        const imageFile = document.getElementById('imageFile');
+        const sendBtn = document.getElementById('sendBtn');
+        const fileInfo = document.getElementById('fileInfo');
+        const chatContainer = document.getElementById('chatContainer');
+        const loading = document.getElementById('loading');
 
-            // 选择文件事件
-            imageFile.addEventListener('change', function(e) {
-                if (e.target.files.length > 0) {
-                    selectedFile = e.target.files[0];
-                    fileName.textContent = selectedFile.name;
-                    sendBtn.disabled = false;
-                } else {
-                    selectedFile = null;
-                    fileName.textContent = "未选择文件";
-                    sendBtn.disabled = true;
-                }
-            });
+        // 初始化：监听输入变化，启用/禁用发送按钮
+        function checkSendable() {
+            const hasText = textInput.value.trim().length > 0;
+            const hasFile = selectedFile !== null;
+            sendBtn.disabled = !(hasText || hasFile);
+        }
 
-            // 发送按钮点击事件
-            sendBtn.addEventListener('click', function() {
-                if (!selectedFile) return;
+        textInput.addEventListener('input', checkSendable);
+        imageFile.addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                selectedFile = e.target.files[0];
+                fileInfo.textContent = `已选择：${selectedFile.name} (${formatFileSize(selectedFile.size)})`;
+            } else {
+                selectedFile = null;
+                fileInfo.textContent = '';
+            }
+            checkSendable();
+        });
 
-                // 1. 添加用户消息（上传的图片）
-                const userMessage = createUserMessage(selectedFile);
-                chatContainer.appendChild(userMessage);
+        // 发送按钮点击事件
+        sendBtn.addEventListener('click', function() {
+            const userText = textInput.value.trim();
+            const hasText = userText.length > 0;
+            const hasFile = selectedFile !== null;
+
+            if (!hasText && !hasFile) return;
+
+            // 1. 添加用户消息到对话区
+            const userMessage = createUserMessage(userText, selectedFile);
+            chatContainer.appendChild(userMessage);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            // 2. 显示加载动画，重置输入状态
+            sendBtn.disabled = true;
+            loading.style.display = "flex";
+            textInput.value = '';
+            imageFile.value = '';
+            selectedFile = null;
+            fileInfo.textContent = '';
+
+            // 3. 构造请求参数（支持纯文字、纯图片、文字+图片）
+            const formData = new FormData();
+            if (hasText) formData.append('question', userText);
+            if (hasFile) formData.append('image', selectedFile);
+
+            // 4. 调用后端接口
+            fetch('/detect', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = "none";
+                // 5. 添加AI回复到对话区
+                const aiMessage = createAIMessage(data, userText);
+                chatContainer.appendChild(aiMessage);
                 chatContainer.scrollTop = chatContainer.scrollHeight;
-
-                // 2. 显示加载动画
-                sendBtn.disabled = true;
-                loading.style.display = "flex";
-                imageFile.value = ""; // 清空文件选择
-                fileName.textContent = "未选择文件";
-
-                // 3. 构造FormData，调用检测接口
-                const formData = new FormData();
-                formData.append('image', selectedFile);
-
-                fetch('/detect', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    // 4. 隐藏加载动画
-                    loading.style.display = "none";
-
-                    // 5. 添加AI回复消息
-                    const aiMessage = createAIMessage(data);
-                    chatContainer.appendChild(aiMessage);
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-
-                    // 6. 重置选择状态
-                    selectedFile = null;
-                })
-                .catch(error => {
-                    // 异常处理
-                    loading.style.display = "none";
-                    const errorMessage = createErrorMsg(error);
-                    chatContainer.appendChild(errorMessage);
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-                });
+            })
+            .catch(error => {
+                loading.style.display = "none";
+                const errorMsg = createErrorMsg(error);
+                chatContainer.appendChild(errorMsg);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
             });
         });
 
-        // 创建用户消息元素（上传的图片）
-        function createUserMessage(file) {
+        // 创建用户消息元素
+        function createUserMessage(text, file) {
             const messageDiv = document.createElement('div');
             messageDiv.className = "chat-message user-message";
             
@@ -418,27 +461,30 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = "message-content";
             
-            // 图片预览
-            const imgPreview = document.createElement('img');
-            imgPreview.className = "message-image";
-            imgPreview.src = URL.createObjectURL(file);
-            imgPreview.alt = file.name;
+            // 文字内容
+            if (text) {
+                const textDiv = document.createElement('div');
+                textDiv.className = "message-text";
+                textDiv.textContent = text;
+                contentDiv.appendChild(textDiv);
+            }
             
-            const fileNameDiv = document.createElement('div');
-            fileNameDiv.style.marginTop = "8px";
-            fileNameDiv.style.fontSize = "12px";
-            fileNameDiv.textContent = `上传文件：${file.name} (${formatFileSize(file.size)})`;
+            // 图片内容
+            if (file) {
+                const imgPreview = document.createElement('img');
+                imgPreview.className = "message-image";
+                imgPreview.src = URL.createObjectURL(file);
+                imgPreview.alt = file.name;
+                contentDiv.appendChild(imgPreview);
+            }
             
-            contentDiv.appendChild(imgPreview);
-            contentDiv.appendChild(fileNameDiv);
             messageDiv.appendChild(avatarDiv);
             messageDiv.appendChild(contentDiv);
-            
             return messageDiv;
         }
 
-        // 创建AI回复消息元素（检测结果）
-        function createAIMessage(data) {
+        // 创建AI回复消息元素
+        function createAIMessage(data, userQuestion) {
             const messageDiv = document.createElement('div');
             messageDiv.className = "chat-message ai-message";
             
@@ -454,36 +500,48 @@
             statusDiv.style.fontWeight = "500";
             statusDiv.textContent = data.msg;
             
-            // 检测结果
+            // 核心回复内容
             const resultDiv = document.createElement('div');
             resultDiv.className = "message-result";
             
             if (data.code === 200) {
-                // 成功结果
-                const fileInfoDiv = document.createElement('div');
-                fileInfoDiv.textContent = `文件名：${data['文件名称']}`;
-                
-                const resultListDiv = document.createElement('div');
-                resultListDiv.style.marginTop = "8px";
-                resultListDiv.textContent = "检测到的目标：";
-                
-                data['检测结果'].forEach((item, index) => {
-                    const itemDiv = document.createElement('div');
-                    itemDiv.className = "result-item";
-                    itemDiv.textContent = `${index+1}. 类型：${item.类别} | 置信度：${item.置信度} | 坐标：${item.坐标.join(', ')}`;
-                    resultListDiv.appendChild(itemDiv);
-                });
-                
-                // AI分析
-                const aiAnalysisDiv = document.createElement('div');
-                aiAnalysisDiv.className = "ai-analysis";
-                aiAnalysisDiv.innerHTML = `<i class="fas fa-lightbulb"></i> 豆包AI分析：${data['豆包AI分析']}`;
-                
-                resultDiv.appendChild(fileInfoDiv);
-                resultDiv.appendChild(resultListDiv);
-                resultDiv.appendChild(aiAnalysisDiv);
+                // 有检测结果（上传了图片）
+                if (data['检测结果'] && data['检测结果'].length > 0) {
+                    // 文件信息
+                    const fileInfoDiv = document.createElement('div');
+                    fileInfoDiv.textContent = `文件：${data['文件名称']}`;
+                    
+                    // 检测目标列表
+                    const targetDiv = document.createElement('div');
+                    targetDiv.style.marginTop = "8px";
+                    targetDiv.textContent = userQuestion 
+                        ? `根据你的提问和检测结果：` 
+                        : `检测到的目标：`;
+                    
+                    data['检测结果'].forEach((item, index) => {
+                        const itemDiv = document.createElement('div');
+                        itemDiv.className = "result-item";
+                        itemDiv.textContent = `${index+1}. 类型：${item.类别} | 置信度：${item.置信度} | 坐标：${item.坐标.join(', ')}`;
+                        targetDiv.appendChild(itemDiv);
+                    });
+                    
+                    // AI分析（结合用户提问）
+                    const aiAnalysisDiv = document.createElement('div');
+                    aiAnalysisDiv.className = "ai-analysis";
+                    aiAnalysisDiv.innerHTML = `<i class="fas fa-lightbulb"></i> ${data['豆包AI分析']}`;
+                    
+                    resultDiv.appendChild(fileInfoDiv);
+                    resultDiv.appendChild(targetDiv);
+                    resultDiv.appendChild(aiAnalysisDiv);
+                } else {
+                    // 纯文字提问（无图片）
+                    const textReplyDiv = document.createElement('div');
+                    textReplyDiv.style.lineHeight = "1.8";
+                    textReplyDiv.textContent = data['豆包AI分析'];
+                    resultDiv.appendChild(textReplyDiv);
+                }
             } else {
-                // 失败结果
+                // 错误结果
                 resultDiv.style.color = "#e74c3c";
                 resultDiv.textContent = `错误：${data.msg}`;
             }
@@ -502,37 +560,45 @@
             messageDiv.className = "chat-message ai-message";
             
             const avatarDiv = document.createElement('div');
-            messageDiv.className = "message-avatar";
+            avatarDiv.className = "message-avatar";
             avatarDiv.textContent = "❌";
             
             const contentDiv = document.createElement('div');
             contentDiv.className = "message-content";
             contentDiv.style.backgroundColor = "#ffebee";
             contentDiv.style.color = "#e74c3c";
-            contentDiv.textContent = `检测失败：${error.message || "网络异常，请重试"}`;
+            contentDiv.textContent = `处理失败：${error.message || "网络异常，请重试"}`;
             
             messageDiv.appendChild(avatarDiv);
             messageDiv.appendChild(contentDiv);
-            
             return messageDiv;
         }
 
-        // 格式化文件大小
+        // 工具函数：格式化文件大小
         function formatFileSize(bytes) {
             if (bytes < 1024) return bytes + " B";
             else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
             else return (bytes / 1048576).toFixed(1) + " MB";
         }
 
-        // 清空对话
+        // 工具函数：清空输入
+        function clearInput() {
+            textInput.value = '';
+            imageFile.value = '';
+            selectedFile = null;
+            fileInfo.textContent = '';
+            checkSendable();
+        }
+
+        // 工具函数：清空对话
         function clearChat() {
-            const chatContainer = document.getElementById('chatContainer');
-            // 保留欢迎消息
             chatContainer.innerHTML = `
                 <div class="chat-message ai-message">
                     <div class="message-avatar">🤖</div>
                     <div class="message-content">
-                        你好！我是YOLO11智能检测助手，上传图片即可检测目标（支持人、车、物等），并生成AI分析结果。
+                        你好！我是YOLO11智能检测助手，支持两种交互方式：
+                        <br>1. 直接上传图片，我会自动检测目标（人/车/物等）；
+                        <br>2. 打字提问（比如“检测到多少人？”“这个目标是什么？”），可结合图片一起发送。
                     </div>
                 </div>
             `;
