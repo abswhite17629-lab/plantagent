@@ -196,7 +196,7 @@ def save_to_redis(filename, question, detections, ai_analysis, expire=3600):
             "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "filename": filename or ""
         }
-        # 保存到Redis并设置过期时间
+        # 修复Redis hmset弃用警告：替换为hset + mapping参数
         redis_client.hset(cache_key, mapping=cache_value)
         redis_client.expire(cache_key, expire)
         print(f"✅ 交互记录已缓存到Redis：{cache_key}（过期时间{expire}秒）")
@@ -205,53 +205,66 @@ def save_to_redis(filename, question, detections, ai_analysis, expire=3600):
         print(f"⚠️ 保存Redis失败（不影响核心功能）：{str(e)}")
         return False
 
-# ===================== 豆包AI模块（增强：支持文字提问+检测结果混合分析） =====================
+# ===================== 豆包AI模块（增强：精准回答人数+自由问答） =====================
 def call_doubao_ai(question, detections=None):
     """
     增强版AI调用：
-    1. 有检测结果+提问：结合结果回答问题；
-    2. 有检测结果无提问：分析检测结果；
-    3. 无检测结果有提问：回答关于YOLO检测的问题（功能、用法等）；
-    4. 无检测结果无提问：返回欢迎提示。
+    1. 预处理检测结果：自动统计各类目标数量（比如人数），让AI精准回答；
+    2. 精准回应：有检测结果时优先回答数量/目标问题，无检测结果时自由回答所有问题；
+    3. 容错更强：提示词更清晰，参数更合理，回答更符合自然语言习惯。
     """
     # 兜底提示（AI调用失败时返回）
-    fallback_msg = "我是YOLO11智能检测助手，支持图片目标检测和相关问题咨询。你可以上传图片检测目标，或提问关于检测功能的用法（比如“能检测什么？”“置信度是什么？”）。"
+    fallback_msg = "我是YOLO11智能检测助手，支持图片目标检测和任意问题咨询～你可以上传图片检测目标（人、车、动物等），也可以问任何想知道的问题（比如“今天天气怎么样？”“检测到多少人？”）。"
     
     # 校验豆包API Key是否配置
     if not config.DOUBAO_CONFIG["api_key"] or config.DOUBAO_CONFIG["api_key"] == "你的豆包API Key":
         print("❌ 未配置有效豆包API Key，使用兜底回复")
         return fallback_msg
 
-    # 构造不同场景的提示词
+    # ========== 关键优化1：预处理检测结果，自动统计各类目标数量 ==========
+    detect_summary = ""
+    if detections and len(detections) > 0:
+        # 统计各类目标的数量（比如“人：2个，汽车：1个”）
+        target_count = {}
+        for item in detections:
+            target_type = item["类别"]
+            target_count[target_type] = target_count.get(target_type, 0) + 1
+        
+        # 生成检测结果摘要（让AI直接用，避免解析出错）
+        detect_summary = "检测结果统计："
+        for target, count in target_count.items():
+            detect_summary += f"{target}={count}个；"
+        detect_summary = detect_summary.rstrip("；")  # 去掉最后一个分号
+
+    # ========== 关键优化2：分场景设计精准的提示词 ==========
     if detections and len(detections) > 0:
         # 场景1：有检测结果（上传了图片）
         prompt = f"""
-        你是YOLO11目标检测助手，需要结合检测结果回答用户问题：
-        检测结果：{detections}
-        用户提问：{question or '请分析检测结果'}
-        要求：
-        1. 先回应用户提问（如有），再补充检测结果关键信息；
-        2. 语言通俗，无技术术语，重点突出目标类型、数量和置信度；
-        3. 150字以内，简洁明了。
+        你是一个友好的YOLO11智能助手，需要结合检测结果精准回答用户问题：
+        【检测结果统计】：{detect_summary}
+        【原始检测结果】：{detections}
+        【用户提问】：{question or '请分析检测结果'}
+        
+        回答要求：
+        1. 优先直接回应用户的核心问题（比如问“多少人”就先答人数，再补充其他信息）；
+        2. 语言口语化、自然，像聊天一样，不要用技术术语；
+        3. 只说关键信息，控制在100字以内；
+        4. 如果用户没提问，就主动说明检测到的目标类型和数量。
         """
     else:
         # 场景2：无检测结果（纯文字提问）
         prompt = f"""
-        你是YOLO11目标检测助手，负责回答用户关于检测功能的问题：
-        用户提问：{question or '介绍一下你的功能'}
-        已知功能：
-        - 支持上传图片检测目标（人、车、动物、物体等常见类别）；
-        - 能返回目标类型、置信度（准确率）、坐标位置；
-        - 支持结合图片提问（比如“检测到多少人？”“这个目标是什么？”）；
-        - 检测结果可保存到数据库，支持查看历史记录。
-        要求：
-        1. 回答准确，基于已知功能，不编造信息；
-        2. 语言友好，引导用户上传图片或明确提问；
-        3. 100字以内，简洁易懂。
+        你是一个友好的YOLO11智能助手，能回答用户的任意问题：
+        【用户提问】：{question or '打个招呼吧'}
+        
+        回答要求：
+        1. 精准、友好地回答用户的问题，不局限于检测功能（比如天气、闲聊、知识问答都可以）；
+        2. 语言口语化、自然，像聊天一样；
+        3. 控制在100字以内，简洁易懂。
         """
 
     try:
-        # 调用豆包API
+        # ========== 关键优化3：调整API参数，让回答更稳定 ==========
         response = requests.post(
             config.DOUBAO_CONFIG["api_url"],
             headers={
@@ -259,10 +272,10 @@ def call_doubao_ai(question, detections=None):
                 "Content-Type": "application/json"
             },
             json={
-                "model": config.DOUBAO_CONFIG["model"],
+                "model": config.DOUBAO_CONFIG["model"],  # 建议用“ernie-4.0-turbo”或“doubao-pro”
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.6,  # 随机性：0-1，越小越稳定
-                "max_tokens": 200     # 最大返回字数
+                "temperature": 0.3,  # 降低随机性，回答更精准（0-1，越小越稳定）
+                "max_tokens": 300     # 调大最大返回字数，避免回答被截断
             },
             timeout=config.DOUBAO_CONFIG["timeout"]
         )
